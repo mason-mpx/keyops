@@ -14,7 +14,7 @@ RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 # 启用自动工具链下载
 ENV GOTOOLCHAIN=auto
 ENV GO111MODULE=on
-ENV GOPROXY=https://goproxy.cn
+# ENV GOPROXY=https://goproxy.cn
 
 # Copy go modules first for better cache
 COPY go.mod go.sum ./
@@ -65,9 +65,6 @@ ENV KEYOPS_CONFIG=/app/config/config.yaml \
     KEYOPS_ADDR_HTTP=:8080 \
     KEYOPS_ADDR_SSH=:2222
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD wget -qO- http://127.0.0.1:8080/health >/dev/null 2>&1 || exit 1
 
 # Start backend (serves both API and frontend)
 CMD ["/usr/local/bin/keyops-api"]
