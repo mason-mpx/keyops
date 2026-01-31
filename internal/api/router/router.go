@@ -189,7 +189,7 @@ func Setup(
 		{
 			files.GET("/list", fileHandler.ListFiles)             // 列出远程目录文件
 			files.POST("/upload", fileHandler.UploadFile)         // 上传文件到目标服务器
-			files.POST("/download", fileHandler.DownloadFile)     // 从目标服务器下载文件
+			files.GET("/download", fileHandler.DownloadFile)     // 从目标服务器下载文件
 			files.GET("/transfers", fileHandler.GetFileTransfers) // 获取文件传输记录
 		}
 

@@ -36,9 +36,15 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 	// 获取参数
 	hostID := c.PostForm("hostId")
 	remotePath := c.PostForm("remotePath")
+	systemUserID := c.PostForm("systemUserId")
 
 	if hostID == "" {
 		c.JSON(http.StatusBadRequest, model.Error(400, "Missing hostId"))
+		return
+	}
+
+	if systemUserID == "" {
+		c.JSON(http.StatusBadRequest, model.Error(400, "Missing systemUserId parameter"))
 		return
 	}
 
@@ -66,6 +72,13 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 	host, err := h.hostRepo.FindByID(hostID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, model.Error(404, "Host not found"))
+		return
+	}
+
+	// 获取系统用户信息
+	systemUser, err := h.systemUserRepo.FindByID(systemUserID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, model.Error(404, "System user not found"))
 		return
 	}
 
@@ -107,7 +120,7 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 	}
 
 	// 通过SFTP上传文件
-	err = h.uploadFileSFTP(host, remotePath, header.Filename, file, func(progress int) {
+	err = h.uploadFileSFTP(host, systemUser, remotePath, header.Filename, file, header.Size, func(progress int) {
 		// 更新进度
 		h.db.Model(&model.FileTransfer{}).Where("id = ?", transferID).Update("progress", progress)
 	})
@@ -149,95 +162,99 @@ func (h *FileHandler) UploadFile(c *gin.Context) {
 	})
 }
 
-// uploadFileSFTP 通过SFTP上传文件
-// TODO: 需要重构此方法，传入 SystemUser 参数以获取认证信息
-// 当前实现已不可用，因为 Host 模型已移除认证字段
-func (h *FileHandler) uploadFileSFTP(host *model.Host, remotePath, filename string, fileReader io.Reader, progressCallback func(int)) error {
-	// TODO: 需要从 SystemUser 获取认证信息
-	return fmt.Errorf("文件上传功能需要重构以支持系统用户认证，请稍后再试")
+// uploadFileSFTP 通过SFTP上传文件（使用系统用户认证）
+func (h *FileHandler) uploadFileSFTP(host *model.Host, systemUser *model.SystemUser, remotePath, filename string, fileReader io.Reader, fileSize int64, progressCallback func(int)) error {
+	// 构建SSH配置
+	sshConfig := sshclient.SSHConfig{
+		Host:       host.IP,
+		Port:       host.Port,
+		Username:   systemUser.Username,
+		Password:   systemUser.Password,
+		PrivateKey: systemUser.PrivateKey,
+		Passphrase: systemUser.Passphrase,
+		AuthType:   systemUser.AuthType,
+		Timeout:    30 * time.Second,
+	}
 
-	// 以下代码需要重构
-	/*
-		// 创建SSH连接
-		config := &ssh.ClientConfig{
-			User: systemUser.Username,  // 从 SystemUser 获取
-			Auth: []ssh.AuthMethod{
-				ssh.Password(systemUser.Password),
-			},
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-			Timeout:         30 * time.Second,
-		}
+	// 创建SSH客户端
+	client, err := sshclient.NewSSHClient(sshConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create SSH client: %w", err)
+	}
+	defer client.Close()
 
-		if systemUser.PrivateKey != "" {
-			signer, err := ssh.ParsePrivateKey([]byte(systemUser.PrivateKey))
-			if err == nil {
-				config.Auth = append(config.Auth, ssh.PublicKeys(signer))
+	// 创建SSH会话
+	session, err := client.NewSession()
+	if err != nil {
+		return fmt.Errorf("failed to create session: %w", err)
+	}
+	defer session.Close()
+
+	// 获取stdin管道
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("failed to get stdin pipe: %w", err)
+	}
+
+	// 创建目标文件路径（转义特殊字符）
+	// 先构建完整路径，然后转义
+	fullPath := filepath.Join(remotePath, filename)
+	// 转义单引号，用于 shell 命令
+	escapedPath := strings.ReplaceAll(fullPath, "'", "'\"'\"'")
+	cmd := fmt.Sprintf("cat > '%s'", escapedPath)
+
+	// 启动命令
+	if err := session.Start(cmd); err != nil {
+		return fmt.Errorf("failed to start command: %w", err)
+	}
+
+	// 复制文件内容
+	buffer := make([]byte, 32*1024) // 32KB buffer
+	var totalWritten int64
+
+	for {
+		n, err := fileReader.Read(buffer)
+		if n > 0 {
+			written, writeErr := stdin.Write(buffer[:n])
+			if writeErr != nil {
+				stdin.Close()
+				session.Wait()
+				return fmt.Errorf("failed to write: %w", writeErr)
 			}
-		}
+			totalWritten += int64(written)
 
-
-		conn, err := ssh.Dial("tcp", fmt.Sprintf("%s:%d", host.IP, host.Port), config)
-		if err != nil {
-			return fmt.Errorf("failed to dial: %w", err)
-		}
-		defer conn.Close()
-
-		// 创建SFTP会话
-		session, err := conn.NewSession()
-		if err != nil {
-			return fmt.Errorf("failed to create session: %w", err)
-		}
-		defer session.Close()
-
-		// 获取stdin管道
-		stdin, err := session.StdinPipe()
-		if err != nil {
-			return fmt.Errorf("failed to get stdin pipe: %w", err)
-		}
-
-		// 创建目标文件
-		remoteFile := filepath.Join(remotePath, filename)
-		cmd := fmt.Sprintf("cat > %s", remoteFile)
-
-		if err := session.Start(cmd); err != nil {
-			return fmt.Errorf("failed to start command: %w", err)
-		}
-
-		// 复制文件内容
-		buffer := make([]byte, 32*1024) // 32KB buffer
-		var totalWritten int64
-
-		for {
-			n, err := fileReader.Read(buffer)
-			if n > 0 {
-				written, writeErr := stdin.Write(buffer[:n])
-				if writeErr != nil {
-					return fmt.Errorf("failed to write: %w", writeErr)
+			// 更新进度
+			if progressCallback != nil && fileSize > 0 {
+				progress := int((totalWritten * 100) / fileSize)
+				if progress > 100 {
+					progress = 100
 				}
-				totalWritten += int64(written)
-
-				// 更新进度（暂时简化，实际需要知道文件总大小）
-				if progressCallback != nil {
-					progressCallback(50) // 简化的进度更新
-				}
-			}
-
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return fmt.Errorf("failed to read: %w", err)
+				progressCallback(progress)
 			}
 		}
 
-		stdin.Close()
-
-		if progressCallback != nil {
-			progressCallback(100)
+		if err == io.EOF {
+			break
 		}
+		if err != nil {
+			stdin.Close()
+			session.Wait()
+			return fmt.Errorf("failed to read: %w", err)
+		}
+	}
 
-		return session.Wait()
-	*/
+	stdin.Close()
+
+	// 等待命令完成
+	if err := session.Wait(); err != nil {
+		return fmt.Errorf("command failed: %w", err)
+	}
+
+	if progressCallback != nil {
+		progressCallback(100)
+	}
+
+	return nil
 }
 
 // GetFileTransfers 获取文件传输记录列表
@@ -429,6 +446,97 @@ func (h *FileHandler) parseLsOutput(output, basePath string) []gin.H {
 
 // DownloadFile 从目标服务器下载文件
 func (h *FileHandler) DownloadFile(c *gin.Context) {
-	// TODO: 实现文件下载功能
-	c.JSON(http.StatusNotImplemented, model.Error(501, "Download not implemented yet"))
+	// 获取参数（从 Query 获取）
+	hostID := c.Query("hostId")
+	path := c.Query("path")
+	systemUserID := c.Query("systemUserId")
+
+	if hostID == "" {
+		c.JSON(http.StatusBadRequest, model.Error(400, "Missing hostId parameter"))
+		return
+	}
+
+	if systemUserID == "" {
+		c.JSON(http.StatusBadRequest, model.Error(400, "Missing systemUserId parameter"))
+		return
+	}
+
+	if path == "" {
+		c.JSON(http.StatusBadRequest, model.Error(400, "Missing path parameter"))
+		return
+	}
+
+	// 获取主机信息
+	host, err := h.hostRepo.FindByID(hostID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, model.Error(404, "Host not found"))
+		return
+	}
+
+	// 获取系统用户信息
+	systemUser, err := h.systemUserRepo.FindByID(systemUserID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, model.Error(404, "System user not found"))
+		return
+	}
+
+	// 通过SSH连接下载文件
+	fileContent, err := h.downloadFileViaSSH(host, systemUser, path)
+	if err != nil {
+		log.Printf("[FileHandler] Failed to download file via SSH: %v", err)
+		c.JSON(http.StatusInternalServerError, model.Error(500, "Failed to download file: "+err.Error()))
+		return
+	}
+
+	// 从路径提取文件名
+	filename := filepath.Base(path)
+	if filename == "" || filename == "." || filename == "/" {
+		filename = "download"
+	}
+
+	// 设置响应头
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+	c.Header("Content-Type", "application/octet-stream")
+	c.Data(http.StatusOK, "application/octet-stream", fileContent)
 }
+
+// downloadFileViaSSH 通过SSH连接下载文件
+func (h *FileHandler) downloadFileViaSSH(host *model.Host, systemUser *model.SystemUser, filePath string) ([]byte, error) {
+	// 构建SSH配置
+	sshConfig := sshclient.SSHConfig{
+		Host:       host.IP,
+		Port:       host.Port,
+		Username:   systemUser.Username,
+		Password:   systemUser.Password,
+		PrivateKey: systemUser.PrivateKey,
+		Passphrase: systemUser.Passphrase,
+		AuthType:   systemUser.AuthType,
+		Timeout:    30 * time.Second,
+	}
+
+	// 创建SSH客户端
+	client, err := sshclient.NewSSHClient(sshConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SSH client: %w", err)
+	}
+	defer client.Close()
+
+	// 创建SSH会话
+	session, err := client.NewSession()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create session: %w", err)
+	}
+	defer session.Close()
+
+	// 转义文件路径中的特殊字符
+	escapedPath := strings.ReplaceAll(filePath, "'", "'\"'\"'")
+	// 使用 cat 命令读取文件内容
+	cmd := fmt.Sprintf("cat '%s'", escapedPath)
+	output, err := session.CombinedOutput(cmd)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+
+	return output, nil
+}
+
