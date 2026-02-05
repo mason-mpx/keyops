@@ -30,6 +30,8 @@ import (
 	jenkinsHandler "github.com/fisker/zjump-backend/internal/api/handler/jenkins"
 	// Audit handlers
 	auditHandler "github.com/fisker/zjump-backend/internal/api/handler/audit"
+	// DMS handlers
+	dmsHandler "github.com/fisker/zjump-backend/internal/api/handler/dms"
 )
 
 // Auth handlers
@@ -145,3 +147,14 @@ var NewJenkinsHandler = jenkinsHandler.NewJenkinsHandler
 type AuditHandler = auditHandler.AuditHandler
 
 var NewAuditHandler = auditHandler.NewAuditHandler
+
+// DMS handlers
+type DMSInstanceHandler = dmsHandler.InstanceHandler
+type DMSQueryHandler = dmsHandler.QueryHandler
+type DMSQueryLogHandler = dmsHandler.QueryLogHandler
+type DMSPermissionHandler = dmsHandler.PermissionHandler
+
+var NewDMSInstanceHandler = dmsHandler.NewInstanceHandler
+var NewDMSQueryHandler = dmsHandler.NewQueryHandler
+var NewDMSQueryLogHandler = dmsHandler.NewQueryLogHandler
+var NewDMSPermissionHandler = dmsHandler.NewPermissionHandler

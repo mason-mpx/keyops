@@ -48,18 +48,29 @@ func (m *ConfigSyncManager) Start() {
 	}
 
 	pubsub := m.client.Subscribe(m.ctx, m.channel)
-	defer pubsub.Close()
-
+	
 	log.Printf("[ConfigSync] Started listening on channel: %s", m.channel)
 
 	// 接收消息
 	ch := pubsub.Channel()
 	for {
 		select {
-		case msg := <-ch:
+		case msg, ok := <-ch:
+			if !ok {
+				// Channel 已关闭
+				log.Printf("[ConfigSync] Channel closed, stopping listener")
+				pubsub.Close()
+				return
+			}
 			m.handleMessage(msg)
 		case <-m.ctx.Done():
-			log.Printf("[ConfigSync] Stopped listening on channel: %s", m.channel)
+			log.Printf("[ConfigSync] Context cancelled, stopping listener on channel: %s", m.channel)
+			// 先关闭 pubsub，这会关闭 channel
+			pubsub.Close()
+			// 等待 channel 关闭
+			for range ch {
+				// 清空 channel 中的剩余消息
+			}
 			return
 		}
 	}

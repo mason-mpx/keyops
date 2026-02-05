@@ -45,6 +45,12 @@ type Repositories struct {
 	OnCallSchedule   *repository.OnCallScheduleRepository
 	OnCallShift      *repository.OnCallShiftRepository
 	OnCallAssignment *repository.OnCallAssignmentRepository
+	DBInstance            *repository.DBInstanceRepository
+	QueryLog              *repository.QueryLogRepository
+	DBPermission          *repository.DBPermissionRepository
+	DomainCertificate     *repository.DomainCertificateRepository
+	SSLCertificate        *repository.SSLCertificateRepository
+	HostedCertificate     *repository.HostedCertificateRepository
 }
 
 // InitializeRepositories 初始化所有 Repository
@@ -88,5 +94,11 @@ func InitializeRepositories() *Repositories {
 		OnCallShift:      repository.NewOnCallShiftRepository(database.DB),
 		OnCallAssignment: repository.NewOnCallAssignmentRepository(database.DB),
 		AlertRuleGroup:   repository.NewAlertRuleGroupRepository(database.DB),
+		DBInstance:        repository.NewDBInstanceRepository(database.DB),
+		QueryLog:          repository.NewQueryLogRepository(database.DB),
+		DBPermission:      repository.NewDBPermissionRepository(database.DB),
+		DomainCertificate: repository.NewDomainCertificateRepository(database.DB),
+		SSLCertificate:    repository.NewSSLCertificateRepository(database.DB),
+		HostedCertificate: repository.NewHostedCertificateRepository(database.DB),
 	}
 }

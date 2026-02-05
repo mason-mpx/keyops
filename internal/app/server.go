@@ -70,6 +70,10 @@ func StartServer(
 		handlers.Audit,
 		handlers.Alert,
 		handlers.OnCall,
+		handlers.DMSInstance,
+		handlers.DMSQuery,
+		handlers.DMSQueryLog,
+		handlers.DMSPermission,
 		services.K8sPermission,
 		repos.Role,
 		cfg.Server.Mode,
@@ -108,8 +112,11 @@ func StartServer(
 	// Start HTTP server
 	addr := fmt.Sprintf(":%d", cfg.Server.APIPort)
 	httpServer := &http.Server{
-		Addr:    addr,
-		Handler: r,
+		Addr:           addr,
+		Handler:        r,
+		ReadTimeout:    300 * time.Second,  // 5分钟读取超时（支持大SQL传输）
+		WriteTimeout:   300 * time.Second,   // 5分钟写入超时（支持大结果返回）
+		MaxHeaderBytes: 1 << 20,            // 1MB 请求头大小限制
 	}
 
 	// Print startup banner

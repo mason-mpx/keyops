@@ -108,13 +108,42 @@ func (h *ApplicationHandler) ListApplications(c *gin.Context) {
 		params["isCritical"] = false
 	}
 
+	// 权限控制：从 token 中获取用户ID和角色
+	// 管理员可以看到所有应用，普通用户只能看到自己作为负责人的应用
+	role, exists := c.Get("role")
+	isAdmin := exists && role == "admin"
+	
+	// 获取当前用户ID（从 token 中获取，由 AuthMiddleware 设置）
+	var currentUserID string
+	if userID, exists := c.Get("user_id"); exists {
+		if userIDStr, ok := userID.(string); ok && userIDStr != "" {
+			currentUserID = userIDStr
+		}
+	} else if userID, exists := c.Get("userID"); exists {
+		// 兼容不同的字段名
+		if userIDStr, ok := userID.(string); ok && userIDStr != "" {
+			currentUserID = userIDStr
+		}
+	}
+
 	var apps []model.Application
 	var err error
 
+	// 使用 SearchWithUserFilter 方法，它会根据 isAdmin 和 userID 自动进行权限过滤
 	if len(params) > 0 {
-		apps, err = h.repo.Search(params)
+		apps, err = h.repo.SearchWithUserFilter(params, currentUserID, isAdmin)
 	} else {
-		apps, err = h.repo.FindAll()
+		// 如果没有其他查询参数
+		if isAdmin {
+			// 管理员：返回所有应用
+			apps, err = h.repo.FindAll()
+		} else if currentUserID != "" {
+			// 普通用户：使用空参数但带上用户过滤
+			apps, err = h.repo.SearchWithUserFilter(map[string]interface{}{}, currentUserID, false)
+		} else {
+			// 无法获取用户ID，返回空列表
+			apps = []model.Application{}
+		}
 	}
 
 	if err != nil {

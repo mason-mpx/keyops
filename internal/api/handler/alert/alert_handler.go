@@ -1,14 +1,19 @@
 package alert
 
 import (
+	"crypto/tls"
+	"encoding/pem"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"strconv"
+	"time"
 
 	alertService "github.com/fisker/zjump-backend/internal/alert/service"
 	"github.com/fisker/zjump-backend/internal/model"
 	"github.com/fisker/zjump-backend/internal/notification"
+	"github.com/fisker/zjump-backend/internal/repository"
 	"github.com/gin-gonic/gin"
 )
 
@@ -17,6 +22,10 @@ type AlertHandler struct {
 	service             *alertService.AlertService
 	notificationManager *notification.NotificationManager
 	onCallService       interface{} // 避免循环依赖，使用 interface{}
+	domainCertRepo      interface{} // 域名证书仓库
+	sslCertRepo         interface{} // SSL证书仓库
+	hostedCertRepo      interface{} // 托管证书仓库
+	certificateAlertService interface{} // 证书告警服务（避免循环依赖，使用 interface{}）
 }
 
 func NewAlertHandler(service *alertService.AlertService, notificationManager *notification.NotificationManager) *AlertHandler {
@@ -26,8 +35,18 @@ func NewAlertHandler(service *alertService.AlertService, notificationManager *no
 	}
 }
 
+func (h *AlertHandler) SetCertificateRepositories(domainCertRepo, sslCertRepo, hostedCertRepo interface{}) {
+	h.domainCertRepo = domainCertRepo
+	h.sslCertRepo = sslCertRepo
+	h.hostedCertRepo = hostedCertRepo
+}
+
 func (h *AlertHandler) SetOnCallService(onCallService interface{}) {
 	h.onCallService = onCallService
+}
+
+func (h *AlertHandler) SetCertificateAlertService(certificateAlertService interface{}) {
+	h.certificateAlertService = certificateAlertService
 }
 
 // ==================== 告警规则数据源 ====================
@@ -1316,4 +1335,460 @@ func (h *AlertHandler) GetTopAlerts(c *gin.Context) {
 	}
 	
 	c.JSON(http.StatusOK, model.Success(topAlerts))
+}
+
+// ==================== 证书管理 ====================
+
+// GetDomainCertificates 获取域名证书列表
+func (h *AlertHandler) GetDomainCertificates(c *gin.Context) {
+	if h.domainCertRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书仓库未初始化"))
+		return
+	}
+	repo := h.domainCertRepo.(*repository.DomainCertificateRepository)
+	
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
+	keyword := c.DefaultQuery("keyword", "")
+	
+	total, certs, err := repo.List(page, pageSize, keyword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, err.Error()))
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "success",
+		"data":    certs,
+		"total":   total,
+	})
+}
+
+// GetDomainCertificate 获取域名证书详情
+func (h *AlertHandler) GetDomainCertificate(c *gin.Context) {
+	if h.domainCertRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书仓库未初始化"))
+		return
+	}
+	repo := h.domainCertRepo.(*repository.DomainCertificateRepository)
+	
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	cert, err := repo.FindByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, model.Error(404, "证书不存在"))
+		return
+	}
+	
+	c.JSON(http.StatusOK, model.Success(cert))
+}
+
+// CreateDomainCertificate 创建域名证书
+func (h *AlertHandler) CreateDomainCertificate(c *gin.Context) {
+	if h.domainCertRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书仓库未初始化"))
+		return
+	}
+	repo := h.domainCertRepo.(*repository.DomainCertificateRepository)
+	
+	var req model.DomainCertificate
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.Error(400, err.Error()))
+		return
+	}
+	
+	if err := repo.Create(&req); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, err.Error()))
+		return
+	}
+	
+	cert, _ := repo.FindByID(req.ID)
+	c.JSON(http.StatusOK, model.Success(cert))
+}
+
+// UpdateDomainCertificate 更新域名证书
+func (h *AlertHandler) UpdateDomainCertificate(c *gin.Context) {
+	if h.domainCertRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书仓库未初始化"))
+		return
+	}
+	repo := h.domainCertRepo.(*repository.DomainCertificateRepository)
+	
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	var req model.DomainCertificate
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.Error(400, err.Error()))
+		return
+	}
+	
+	req.ID = uint(id)
+	if err := repo.Update(&req); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, err.Error()))
+		return
+	}
+	
+	cert, _ := repo.FindByID(uint(id))
+	c.JSON(http.StatusOK, model.Success(cert))
+}
+
+// DeleteDomainCertificate 删除域名证书
+func (h *AlertHandler) DeleteDomainCertificate(c *gin.Context) {
+	if h.domainCertRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书仓库未初始化"))
+		return
+	}
+	repo := h.domainCertRepo.(*repository.DomainCertificateRepository)
+	
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err := repo.Delete(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, err.Error()))
+		return
+	}
+	
+	c.JSON(http.StatusOK, model.Success(nil))
+}
+
+// RefreshDomainCertificate 刷新域名证书信息（通过HTTPS连接获取证书信息）
+func (h *AlertHandler) RefreshDomainCertificate(c *gin.Context) {
+	if h.domainCertRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书仓库未初始化"))
+		return
+	}
+	repo := h.domainCertRepo.(*repository.DomainCertificateRepository)
+	
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	cert, err := repo.FindByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, model.Error(404, "证书不存在"))
+		return
+	}
+	
+	// 使用 crypto/tls 连接域名并获取证书信息
+	if err := h.fetchCertificateInfo(cert); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, fmt.Sprintf("获取证书信息失败: %v", err)))
+		return
+	}
+	
+	// 更新证书信息
+	if err := repo.Update(cert); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, err.Error()))
+		return
+	}
+	
+	// 返回更新后的证书信息
+	updatedCert, _ := repo.FindByID(uint(id))
+	c.JSON(http.StatusOK, model.Success(updatedCert))
+}
+
+// CheckCertificateAlerts 手动触发证书告警检查
+func (h *AlertHandler) CheckCertificateAlerts(c *gin.Context) {
+	if h.certificateAlertService == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书告警服务未初始化"))
+		return
+	}
+
+	// 使用类型断言获取证书告警服务
+	type CertificateAlertServiceInterface interface {
+		CheckAndSendAlerts() error
+	}
+	
+	service, ok := h.certificateAlertService.(CertificateAlertServiceInterface)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书告警服务类型错误"))
+		return
+	}
+
+	// 执行检查
+	if err := service.CheckAndSendAlerts(); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, fmt.Sprintf("证书告警检查失败: %v", err)))
+		return
+	}
+
+	c.JSON(http.StatusOK, model.Success(gin.H{
+		"message": "证书告警检查已执行",
+	}))
+}
+
+// fetchCertificateInfo 通过HTTPS连接获取证书信息
+func (h *AlertHandler) fetchCertificateInfo(cert *model.DomainCertificate) error {
+	address := fmt.Sprintf("%s:%d", cert.Domain, cert.Port)
+	if cert.Port == 0 {
+		address = fmt.Sprintf("%s:443", cert.Domain)
+		cert.Port = 443
+	}
+	
+	// 建立TCP连接
+	conn, err := net.DialTimeout("tcp", address, 10*time.Second)
+	if err != nil {
+		cert.ConnectStatus = boolPtr(false)
+		return fmt.Errorf("连接失败: %w", err)
+	}
+	defer conn.Close()
+	
+	// 创建TLS连接
+	tlsConn := tls.Client(conn, &tls.Config{
+		ServerName:         cert.Domain,
+		InsecureSkipVerify: true, // 允许自签名证书
+	})
+	defer tlsConn.Close()
+	
+	// 握手获取证书
+	if err := tlsConn.Handshake(); err != nil {
+		cert.ConnectStatus = boolPtr(false)
+		return fmt.Errorf("TLS握手失败: %w", err)
+	}
+	
+	// 获取证书链
+	state := tlsConn.ConnectionState()
+	if len(state.PeerCertificates) == 0 {
+		cert.ConnectStatus = boolPtr(false)
+		return fmt.Errorf("未获取到证书")
+	}
+	
+	// 获取第一个证书（服务器证书）
+	serverCert := state.PeerCertificates[0]
+	
+	// 解析证书信息
+	cert.ConnectStatus = boolPtr(true)
+	cert.StartTime = &serverCert.NotBefore
+	cert.ExpireTime = &serverCert.NotAfter
+	
+	// 计算剩余天数
+	if cert.ExpireTime != nil {
+		days := int(time.Until(*cert.ExpireTime).Hours() / 24)
+		cert.ExpireDays = days
+	}
+	
+	// 将证书转换为PEM格式
+	certPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: serverCert.Raw,
+	})
+	cert.SSLCertificate = string(certPEM)
+	
+	// 私钥不在这里获取（需要服务器权限）
+	cert.SSLCertificateKey = ""
+	
+	return nil
+}
+
+// boolPtr 返回bool指针
+func boolPtr(b bool) *bool {
+	return &b
+}
+
+// GetSslCertificates 获取SSL证书列表
+func (h *AlertHandler) GetSslCertificates(c *gin.Context) {
+	if h.sslCertRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书仓库未初始化"))
+		return
+	}
+	repo := h.sslCertRepo.(*repository.SSLCertificateRepository)
+	
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
+	keyword := c.DefaultQuery("keyword", "")
+	
+	total, certs, err := repo.List(page, pageSize, keyword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, err.Error()))
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "success",
+		"data":    certs,
+		"total":   total,
+	})
+}
+
+// GetSslCertificate 获取SSL证书详情
+func (h *AlertHandler) GetSslCertificate(c *gin.Context) {
+	if h.sslCertRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书仓库未初始化"))
+		return
+	}
+	repo := h.sslCertRepo.(*repository.SSLCertificateRepository)
+	
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	cert, err := repo.FindByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, model.Error(404, "证书不存在"))
+		return
+	}
+	
+	c.JSON(http.StatusOK, model.Success(cert))
+}
+
+// CreateSslCertificate 创建SSL证书
+func (h *AlertHandler) CreateSslCertificate(c *gin.Context) {
+	if h.sslCertRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书仓库未初始化"))
+		return
+	}
+	repo := h.sslCertRepo.(*repository.SSLCertificateRepository)
+	
+	var req model.SSLCertificate
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.Error(400, err.Error()))
+		return
+	}
+	
+	if err := repo.Create(&req); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, err.Error()))
+		return
+	}
+	
+	c.JSON(http.StatusOK, model.Success(req))
+}
+
+// UpdateSslCertificate 更新SSL证书
+func (h *AlertHandler) UpdateSslCertificate(c *gin.Context) {
+	if h.sslCertRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书仓库未初始化"))
+		return
+	}
+	repo := h.sslCertRepo.(*repository.SSLCertificateRepository)
+	
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	var req model.SSLCertificate
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.Error(400, err.Error()))
+		return
+	}
+	
+	req.ID = uint(id)
+	if err := repo.Update(&req); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, err.Error()))
+		return
+	}
+	
+	cert, _ := repo.FindByID(uint(id))
+	c.JSON(http.StatusOK, model.Success(cert))
+}
+
+// DeleteSslCertificate 删除SSL证书
+func (h *AlertHandler) DeleteSslCertificate(c *gin.Context) {
+	if h.sslCertRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书仓库未初始化"))
+		return
+	}
+	repo := h.sslCertRepo.(*repository.SSLCertificateRepository)
+	
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err := repo.Delete(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, err.Error()))
+		return
+	}
+	
+	c.JSON(http.StatusOK, model.Success(nil))
+}
+
+// GetHostedCertificates 获取托管证书列表
+func (h *AlertHandler) GetHostedCertificates(c *gin.Context) {
+	if h.hostedCertRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书仓库未初始化"))
+		return
+	}
+	repo := h.hostedCertRepo.(*repository.HostedCertificateRepository)
+	
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
+	keyword := c.DefaultQuery("keyword", "")
+	
+	total, certs, err := repo.List(page, pageSize, keyword)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, err.Error()))
+		return
+	}
+	
+	c.JSON(http.StatusOK, gin.H{
+		"code":    0,
+		"message": "success",
+		"data":    certs,
+		"total":   total,
+	})
+}
+
+// GetHostedCertificate 获取托管证书详情
+func (h *AlertHandler) GetHostedCertificate(c *gin.Context) {
+	if h.hostedCertRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书仓库未初始化"))
+		return
+	}
+	repo := h.hostedCertRepo.(*repository.HostedCertificateRepository)
+	
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	cert, err := repo.FindByID(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, model.Error(404, "证书不存在"))
+		return
+	}
+	
+	c.JSON(http.StatusOK, model.Success(cert))
+}
+
+// CreateHostedCertificate 创建托管证书
+func (h *AlertHandler) CreateHostedCertificate(c *gin.Context) {
+	if h.hostedCertRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书仓库未初始化"))
+		return
+	}
+	repo := h.hostedCertRepo.(*repository.HostedCertificateRepository)
+	
+	var req model.HostedCertificate
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.Error(400, err.Error()))
+		return
+	}
+	
+	if err := repo.Create(&req); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, err.Error()))
+		return
+	}
+	
+	c.JSON(http.StatusOK, model.Success(req))
+}
+
+// UpdateHostedCertificate 更新托管证书
+func (h *AlertHandler) UpdateHostedCertificate(c *gin.Context) {
+	if h.hostedCertRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书仓库未初始化"))
+		return
+	}
+	repo := h.hostedCertRepo.(*repository.HostedCertificateRepository)
+	
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	var req model.HostedCertificate
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.Error(400, err.Error()))
+		return
+	}
+	
+	req.ID = uint(id)
+	if err := repo.Update(&req); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, err.Error()))
+		return
+	}
+	
+	cert, _ := repo.FindByID(uint(id))
+	c.JSON(http.StatusOK, model.Success(cert))
+}
+
+// DeleteHostedCertificate 删除托管证书
+func (h *AlertHandler) DeleteHostedCertificate(c *gin.Context) {
+	if h.hostedCertRepo == nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, "证书仓库未初始化"))
+		return
+	}
+	repo := h.hostedCertRepo.(*repository.HostedCertificateRepository)
+	
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err := repo.Delete(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, model.Error(500, err.Error()))
+		return
+	}
+	
+	c.JSON(http.StatusOK, model.Success(nil))
 }

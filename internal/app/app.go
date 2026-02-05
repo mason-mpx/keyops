@@ -52,10 +52,11 @@ func Initialize(cfgPath string) (*App, error) {
 	logger.Infof("Notification Manager initialized")
 
 	// 6. Initialize background services
-	backgroundServices := InitializeBackgroundServices(repos, cfg, notificationMgr)
+	backgroundServices := InitializeBackgroundServices(repos, cfg, notificationMgr, services.Alert)
 	logger.Infof("Background services initialized")
 	logger.Infof("   Asset sync scheduler started")
 	logger.Infof("   Host status monitor started (interval: 5 minutes)")
+	logger.Infof("   Certificate alert service started (daily check)")
 
 	// 7. Initialize handlers
 	handlers := InitializeHandlers(repos, services, backgroundServices, notificationMgr, unifiedAuditor)

@@ -192,11 +192,26 @@ func (h *SessionHandler) GetSessionRecording(c *gin.Context) {
 			src = playbackURL + "?format=mp4" // 播放 MP4 文件
 			logger.Infof("[Session] Session %s: MP4 file available, ready to play", recording.SessionID)
 		} else if hasGuac {
-			// 只有 .guac 文件，提示转换中（不提供播放 URL，因为前端只显示提示）
-			recordingType = "mp4" // 前端期望 MP4 格式
-			status = "converting"
-			src = "" // 转换中时不提供播放 URL
-			logger.Infof("[Session] Session %s: Only .guac file available, MP4 conversion pending", recording.SessionID)
+			// 只有 .guac 文件，触发异步转换
+			converter := bastionService.GetRecordingConverter()
+			if !converter.IsConverting(guacPath) {
+				logger.Infof("[Session] Triggering conversion for session %s: %s", recording.SessionID, guacPath)
+				converter.ConvertGuacToMP4Async(guacPath)
+			}
+			
+			// 再次检查 MP4 是否已生成（可能在转换过程中完成了）
+			if _, err := os.Stat(mp4Path); err == nil {
+				recordingType = "mp4"
+				status = "ready"
+				src = playbackURL + "?format=mp4"
+				logger.Infof("[Session] Session %s: MP4 file now available after conversion", recording.SessionID)
+			} else {
+				// 转换中或未开始
+				recordingType = "mp4" // 前端期望 MP4 格式
+				status = "converting"
+				src = "" // 转换中时不提供播放 URL
+				logger.Infof("[Session] Session %s: Only .guac file available, MP4 conversion in progress", recording.SessionID)
+			}
 		} else {
 			// 没有文件，提示文件不存在
 			recordingType = "mp4"
@@ -361,10 +376,12 @@ func (h *SessionHandler) GetSessionRecordingFile(c *gin.Context) {
 	// 获取文件信息
 	fileInfo, err := f.Stat()
 	if err != nil {
-		logger.Warnf("[Session] Failed to get file info: %v", err)
-	} else {
-		logger.Infof("[Session] Recording file size: %d bytes", fileInfo.Size())
+		logger.Errorf("[Session] Failed to get file info: %v", err)
+		c.JSON(http.StatusInternalServerError, model.Error(500, fmt.Sprintf("无法获取文件信息: %v", err)))
+		return
 	}
+	fileSize := fileInfo.Size()
+	logger.Infof("[Session] Recording file size: %d bytes", fileSize)
 
 	// guacamole_cast 格式就是纯文本的 Guacamole 协议指令流
 	// 格式：opcode.length1.value1,length2.value2,...;
@@ -381,7 +398,86 @@ func (h *SessionHandler) GetSessionRecordingFile(c *gin.Context) {
 
 		if isMP4 {
 			logger.Infof("[Session] Recording file is MP4 format, serving as video file")
+			
+			// 重置文件指针到开头
+			if _, err := f.Seek(0, 0); err != nil {
+				logger.Errorf("[Session] Failed to seek to file start: %v", err)
+				c.JSON(http.StatusInternalServerError, model.Error(500, fmt.Sprintf("无法重置文件指针: %v", err)))
+				return
+			}
+			
+			// 支持 HTTP Range 请求（视频播放必需）
+			// 浏览器会发送 Range: bytes=0- 或 Range: bytes=start-end 请求
+			rangeHeader := c.GetHeader("Range")
+			
+			if rangeHeader != "" {
+				// 解析 Range 请求
+				// 格式: bytes=start-end 或 bytes=start- 或 bytes=-suffix
+				var start, end int64
+				if strings.HasPrefix(rangeHeader, "bytes=") {
+					rangeSpec := rangeHeader[6:] // 移除 "bytes=" 前缀
+					parts := strings.Split(rangeSpec, "-")
+					
+					if len(parts) == 2 {
+						if parts[0] != "" {
+							start, _ = strconv.ParseInt(parts[0], 10, 64)
+						}
+						if parts[1] != "" {
+							end, _ = strconv.ParseInt(parts[1], 10, 64)
+						} else {
+							end = fileSize - 1 // 到文件末尾
+						}
+					}
+					
+					// 验证范围
+					if start < 0 {
+						start = 0
+					}
+					if end >= fileSize {
+						end = fileSize - 1
+					}
+					if start > end {
+						c.Header("Content-Range", fmt.Sprintf("bytes */%d", fileSize))
+						c.Status(http.StatusRequestedRangeNotSatisfiable)
+						return
+					}
+					
+					// 设置 Range 响应头
+					c.Header("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, fileSize))
+					c.Header("Content-Length", strconv.FormatInt(end-start+1, 10))
+					c.Header("Accept-Ranges", "bytes")
+					c.Header("Content-Type", "video/mp4")
+					c.Status(http.StatusPartialContent) // HTTP 206
+					
+					// 跳转到指定位置
+					if _, err := f.Seek(start, 0); err != nil {
+						logger.Errorf("[Session] Failed to seek to position %d: %v", start, err)
+						c.Status(http.StatusInternalServerError)
+						return
+					}
+					
+					// 只传输请求的范围
+					limitedReader := io.LimitReader(f, end-start+1)
+					_, err = io.Copy(c.Writer, limitedReader)
+					if err != nil {
+						logger.Errorf("[Session] Error streaming MP4 range: %v", err)
+					}
+					return
+				}
+			}
+			
+			// 没有 Range 请求，返回整个文件
 			c.Header("Content-Type", "video/mp4")
+			c.Header("Content-Length", strconv.FormatInt(fileSize, 10))
+			c.Header("Accept-Ranges", "bytes")
+			c.Header("Cache-Control", "public, max-age=3600") // 缓存1小时
+			c.Status(http.StatusOK)
+			
+			_, err = io.Copy(c.Writer, f)
+			if err != nil {
+				logger.Errorf("[Session] Error streaming MP4 file: %v", err)
+			}
+			return
 		} else {
 			// 检测是否为 guacamole_cast 格式（纯文本协议指令流）
 			// guacamole_cast 格式通常以数字开头，例如 "4.size,2.-6,2.32"

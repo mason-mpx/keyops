@@ -1,0 +1,1 @@
+import{r as a}from"./index-STo1oTDL.js";import{a9 as t,aa as o}from"./CartesianChart-DTG_C87E.js";var i=["axis"],s=a.forwardRef((r,e)=>a.createElement(t,{chartName:"LineChart",defaultTooltipEventType:"axis",validateTooltipEventTypes:i,tooltipPayloadSearcher:o,categoricalChartProps:r,ref:e}));export{s as L};

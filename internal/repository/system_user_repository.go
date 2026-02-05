@@ -3,6 +3,7 @@ package repository
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"time"
 
 	"github.com/fisker/zjump-backend/internal/model"
@@ -399,6 +400,10 @@ func (r *PermissionRuleRepository) FindAll() ([]model.PermissionRuleDetail, erro
 		var role model.Role
 		if err := r.db.Where("id = ?", rule.RoleID).First(&role).Error; err == nil {
 			detail.RoleName = role.Name
+		} else {
+			// 如果角色查询失败，记录日志但不影响其他数据的返回
+			// RoleName 保持为空，前端会回退显示 roleId
+			log.Printf("[PermissionRuleRepository] Failed to find role with id %s: %v", rule.RoleID, err)
 		}
 
 		// 获取关联的系统用户（多对多）

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"github.com/fisker/zjump-backend/internal/approval"
@@ -345,17 +346,43 @@ func (h *ApprovalHandler) CreateThirdPartyApproval(c *gin.Context) {
 		return
 	}
 
-	// 检查平台类型是否匹配
-	if config.Type != req.Platform {
+	// 从工单模板的审批配置中读取 platform、api_base_url 和 callback_url（如果存在则覆盖系统配置）
+	// 优先使用模板配置中的 platform，如果没有则使用请求参数中的 platform（兼容旧数据）
+	actualPlatform := req.Platform
+	if ticket.TemplateID != nil && *ticket.TemplateID > 0 {
+		var template model.FormTemplate
+		if err := h.db.First(&template, *ticket.TemplateID).Error; err == nil {
+			if len(template.ApprovalConfig) > 0 {
+				var templateApprovalConfig map[string]interface{}
+				if err := json.Unmarshal(template.ApprovalConfig, &templateApprovalConfig); err == nil {
+					// 如果模板配置中有 platform，优先使用模板配置的 platform
+					if templatePlatform, ok := templateApprovalConfig["platform"].(string); ok && templatePlatform != "" {
+						actualPlatform = templatePlatform
+					}
+					// 如果模板配置中有 api_base_url，则覆盖系统配置
+					if apiBaseURL, ok := templateApprovalConfig["api_base_url"].(string); ok && apiBaseURL != "" {
+						config.APIBaseURL = apiBaseURL
+					}
+					// 如果模板配置中有 callback_url，则覆盖系统配置
+					if callbackURL, ok := templateApprovalConfig["callback_url"].(string); ok && callbackURL != "" {
+						config.CallbackURL = callbackURL
+					}
+				}
+			}
+		}
+	}
+
+	// 检查平台类型是否匹配（使用实际使用的平台类型）
+	if config.Type != actualPlatform {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    400,
-			"message": fmt.Sprintf("审批配置的平台类型(%s)与请求的平台类型(%s)不匹配", config.Type, req.Platform),
+			"message": fmt.Sprintf("审批配置的平台类型(%s)与模板配置的平台类型(%s)不匹配", config.Type, actualPlatform),
 		})
 		return
 	}
 
 	// 确定平台类型
-	platform := model.ApprovalPlatform(req.Platform)
+	platform := model.ApprovalPlatform(actualPlatform)
 
 	// 构建审批对象
 	now := time.Now()
@@ -381,10 +408,22 @@ func (h *ApprovalHandler) CreateThirdPartyApproval(c *gin.Context) {
 	}
 
 	// 从配置中读取审批人信息
+	var approverNames []string
 	if config.ApproverUserIDs != "" {
 		var approverIDs []string
 		if err := json.Unmarshal([]byte(config.ApproverUserIDs), &approverIDs); err == nil {
 			approvalRecord.ApproverIDs = approverIDs
+			// 将审批人ID转换为名称
+			for _, approverID := range approverIDs {
+				var user model.User
+				if err := h.db.Where("id = ?", approverID).First(&user).Error; err == nil {
+					approverNames = append(approverNames, user.Username)
+				} else {
+					// 如果查询不到用户，使用ID作为名称（兼容）
+					approverNames = append(approverNames, approverID)
+				}
+			}
+			approvalRecord.ApproverNames = approverNames
 		}
 	}
 
@@ -437,6 +476,23 @@ func (h *ApprovalHandler) CreateThirdPartyApproval(c *gin.Context) {
 	ticket.ApprovalPlatform = req.Platform
 	ticket.ApprovalInstanceID = externalID
 	ticket.ApprovalURL = approvalRecord.ExternalURL
+	// 同步审批人信息到工单
+	if len(approverNames) > 0 {
+		approversJSON, _ := json.Marshal(approverNames)
+		ticket.Approvers = datatypes.JSON(approversJSON)
+		// 构建初始审批步骤
+		var steps []map[string]interface{}
+		for i, approverName := range approverNames {
+			step := map[string]interface{}{
+				"step":     i + 1,
+				"approver": approverName,
+				"status":   "pending",
+			}
+			steps = append(steps, step)
+		}
+		stepsJSON, _ := json.Marshal(steps)
+		ticket.ApprovalSteps = datatypes.JSON(stepsJSON)
+	}
 	if err := h.db.Save(&ticket).Error; err != nil {
 		// 记录错误但不影响返回结果
 		fmt.Printf("更新工单审批信息失败: %v\n", err)

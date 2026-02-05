@@ -60,15 +60,15 @@ func (l *RedisLock) TryLock() (bool, error) {
 // Unlock 释放锁
 // 如果Redis未启用（client为nil），直接返回nil（优雅降级）
 func (l *RedisLock) Unlock() error {
-	// 取消自动续期
-	l.cancelFn()
-
 	if l.client == nil {
 		// Redis未启用，无需释放锁
+		// 仍然取消上下文以避免资源泄漏
+		l.cancelFn()
 		return nil
 	}
 
 	// 使用 Lua 脚本保证原子性：只有持有锁的实例才能释放
+	// 使用 context.Background() 而不是 l.ctx，因为我们需要在取消上下文之前完成解锁操作
 	script := `
 		if redis.call("get", KEYS[1]) == ARGV[1] then
 			return redis.call("del", KEYS[1])
@@ -77,10 +77,15 @@ func (l *RedisLock) Unlock() error {
 		end
 	`
 
-	result, err := l.client.Eval(l.ctx, script, []string{l.key}, l.value).Result()
+	result, err := l.client.Eval(context.Background(), script, []string{l.key}, l.value).Result()
 	if err != nil {
+		// 即使解锁失败，也要取消上下文以停止自动续期
+		l.cancelFn()
 		return fmt.Errorf("failed to release lock: %w", err)
 	}
+
+	// 解锁操作完成后，取消上下文以停止自动续期
+	l.cancelFn()
 
 	if result == int64(0) {
 		log.Printf("[RedisLock] Lock %s was not held by this instance", l.key)

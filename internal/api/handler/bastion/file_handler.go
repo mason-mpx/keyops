@@ -539,4 +539,3 @@ func (h *FileHandler) downloadFileViaSSH(host *model.Host, systemUser *model.Sys
 
 	return output, nil
 }
-

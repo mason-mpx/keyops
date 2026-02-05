@@ -143,15 +143,27 @@ func (p *FeishuProvider) buildFormContent(approval *model.Approval) (string, err
 	// 如果配置中有自定义表单字段，使用配置的字段
 	if p.config.FormFields != "" {
 		// 尝试从 ExternalData 中获取字段映射配置（工单模板的审批配置）
-		var fieldMappings map[string]string
+		var fieldMappings []map[string]interface{}
 		if approval.ExternalData != "" {
 			var externalData map[string]interface{}
 			if err := json.Unmarshal([]byte(approval.ExternalData), &externalData); err == nil {
-				if mappings, ok := externalData["field_mappings"].(map[string]interface{}); ok {
-					fieldMappings = make(map[string]string)
+				// 支持新格式：field_mappings 是数组
+				if mappingsArray, ok := externalData["field_mappings"].([]interface{}); ok {
+					fieldMappings = make([]map[string]interface{}, 0, len(mappingsArray))
+					for _, m := range mappingsArray {
+						if mapping, ok := m.(map[string]interface{}); ok {
+							fieldMappings = append(fieldMappings, mapping)
+						}
+					}
+				} else if mappings, ok := externalData["field_mappings"].(map[string]interface{}); ok {
+					// 兼容旧格式：field_mappings 是对象（字段名称到关键字的映射）
+					fieldMappings = make([]map[string]interface{}, 0, len(mappings))
 					for k, v := range mappings {
 						if str, ok := v.(string); ok {
-							fieldMappings[k] = str
+							fieldMappings = append(fieldMappings, map[string]interface{}{
+								"fieldName": k, // 使用 fieldName 作为键，兼容旧格式
+								"keyword":   str,
+							})
 						}
 					}
 				}
@@ -330,19 +342,36 @@ func (p *FeishuProvider) ValidateConfig(config map[string]interface{}) error {
 func (p *FeishuProvider) buildNodeApproverOpenIDList(approval *model.Approval) []map[string]interface{} {
 	nodeApproverList := []map[string]interface{}{}
 
-	// 从配置中读取审批人列表
+	// 优先从工单模板的审批配置中读取审批人列表
 	var approverIDs []string
-	if p.config.ApproverUserIDs != "" {
-		if err := json.Unmarshal([]byte(p.config.ApproverUserIDs), &approverIDs); err == nil && len(approverIDs) > 0 {
-			nodeApproverList = append(nodeApproverList, map[string]interface{}{
-				"key":   "default_node",
-				"value": approverIDs,
-			})
+	if approval.ExternalData != "" {
+		var externalData map[string]interface{}
+		if err := json.Unmarshal([]byte(approval.ExternalData), &externalData); err == nil {
+			if approverUserIds, ok := externalData["approver_user_ids"].([]interface{}); ok {
+				approverIDs = make([]string, 0, len(approverUserIds))
+				for _, id := range approverUserIds {
+					if str, ok := id.(string); ok {
+						approverIDs = append(approverIDs, str)
+					}
+				}
+			}
 		}
 	}
 
-	// 如果没有配置审批人，返回空列表
-	// 审批人必须通过数据库配置设置
+	// 如果工单模板没有配置审批人，使用审批配置中的审批人
+	if len(approverIDs) == 0 && p.config.ApproverUserIDs != "" {
+		if err := json.Unmarshal([]byte(p.config.ApproverUserIDs), &approverIDs); err != nil {
+			approverIDs = []string{}
+		}
+	}
+
+	if len(approverIDs) > 0 {
+		nodeApproverList = append(nodeApproverList, map[string]interface{}{
+			"key":   "default_node",
+			"value": approverIDs,
+		})
+	}
+
 	return nodeApproverList
 }
 
@@ -350,19 +379,36 @@ func (p *FeishuProvider) buildNodeApproverOpenIDList(approval *model.Approval) [
 func (p *FeishuProvider) buildNodeApproverUserIDList(approval *model.Approval) []map[string]interface{} {
 	nodeApproverList := []map[string]interface{}{}
 
-	// 从配置中读取审批人列表
+	// 优先从工单模板的审批配置中读取审批人列表
 	var approverIDs []string
-	if p.config.ApproverUserIDs != "" {
-		if err := json.Unmarshal([]byte(p.config.ApproverUserIDs), &approverIDs); err == nil && len(approverIDs) > 0 {
-			nodeApproverList = append(nodeApproverList, map[string]interface{}{
-				"key":   "default_node",
-				"value": approverIDs,
-			})
+	if approval.ExternalData != "" {
+		var externalData map[string]interface{}
+		if err := json.Unmarshal([]byte(approval.ExternalData), &externalData); err == nil {
+			if approverUserIds, ok := externalData["approver_user_ids"].([]interface{}); ok {
+				approverIDs = make([]string, 0, len(approverUserIds))
+				for _, id := range approverUserIds {
+					if str, ok := id.(string); ok {
+						approverIDs = append(approverIDs, str)
+					}
+				}
+			}
 		}
 	}
 
-	// 如果没有配置审批人，返回空列表
-	// 审批人必须通过数据库配置设置
+	// 如果工单模板没有配置审批人，使用审批配置中的审批人
+	if len(approverIDs) == 0 && p.config.ApproverUserIDs != "" {
+		if err := json.Unmarshal([]byte(p.config.ApproverUserIDs), &approverIDs); err != nil {
+			approverIDs = []string{}
+		}
+	}
+
+	if len(approverIDs) > 0 {
+		nodeApproverList = append(nodeApproverList, map[string]interface{}{
+			"key":   "default_node",
+			"value": approverIDs,
+		})
+	}
+
 	return nodeApproverList
 }
 
@@ -395,11 +441,27 @@ func (p *FeishuProvider) createApprovalViaHTTPWithCode(ctx context.Context, toke
 	}
 	url := fmt.Sprintf("%s%s", p.baseURL, apiPath)
 
-	// 直接使用当前登录用户的用户名作为userID
-	userID := approval.ApplicantID
+	// 飞书API需要的是用户名（username），而不是系统内部的UUID
+	// ApplicantName 应该已经是用户名了（在创建审批记录时已设置）
+	userID := approval.ApplicantName
 	if userID == "" {
-		userID = approval.ApplicantName // 如果ApplicantID为空，使用ApplicantName
+		userID = approval.ApplicantID // 如果ApplicantName为空，fallback到ApplicantID
+		fmt.Printf("飞书审批 - 警告：ApplicantName为空，使用ApplicantID: %s\n", userID)
 	}
+	
+	// 如果userID看起来像UUID（36个字符且包含连字符），尝试查询用户名
+	if len(userID) == 36 && strings.Contains(userID, "-") {
+		fmt.Printf("飞书审批 - 警告：userID是UUID格式，尝试查询用户名: %s\n", userID)
+		var user model.User
+		if err := p.db.Where("id = ?", userID).First(&user).Error; err == nil {
+			userID = user.Username
+			fmt.Printf("飞书审批 - 查询到用户名: %s\n", userID)
+		} else {
+			fmt.Printf("飞书审批 - 错误：userID是UUID格式但查询用户名失败: %v，将使用UUID（可能失败）\n", err)
+		}
+	}
+	
+	fmt.Printf("飞书审批 - 最终使用的userID: %s (原始ApplicantID: %s, 原始ApplicantName: %s)\n", userID, approval.ApplicantID, approval.ApplicantName)
 	openID := userID // 对于飞书，OpenID通常与UserID相同
 
 	reqBody := map[string]interface{}{
@@ -508,8 +570,9 @@ func (p *FeishuProvider) GetApprovalFormDetail(ctx context.Context, approvalCode
 }
 
 // buildFormContentFromConfig 从配置中构建表单内容
-// fieldMappings: 字段名称到关键字的映射，key 是字段名称，value 是关键字（用于从工单数据中获取值）
-func (p *FeishuProvider) buildFormContentFromConfig(approval *model.Approval, fieldMappings map[string]string) (string, error) {
+// fieldMappings: Widget ID 到关键字的映射数组，每个映射包含 widgetId 和 keyword
+// TODO: 当前仅实现飞书平台，后续需要为钉钉和企微实现类似的逻辑
+func (p *FeishuProvider) buildFormContentFromConfig(approval *model.Approval, fieldMappings []map[string]interface{}) (string, error) {
 	var formFields []map[string]interface{}
 	if err := json.Unmarshal([]byte(p.config.FormFields), &formFields); err != nil {
 		return "", fmt.Errorf("解析表单字段配置失败: %v", err)
@@ -526,6 +589,45 @@ func (p *FeishuProvider) buildFormContentFromConfig(approval *model.Approval, fi
 		}
 	}
 
+	// 构建 Widget ID 到字段名称（关键字）的映射表
+	// 新格式：{ fieldName: "字段名", widgetId: "widgetId" }，字段名称就是关键字
+	// 旧格式：{ fieldName: "字段名", keyword: "关键字" } 或 { widgetId: "widgetId", keyword: "关键字" }
+	widgetIdToKeyword := make(map[string]string)
+	fieldNameToKeyword := make(map[string]string) // 用于兼容旧格式：通过字段名称匹配
+	
+	if len(fieldMappings) > 0 {
+		for _, mapping := range fieldMappings {
+			var widgetId, fieldName, keyword string
+			
+			// 获取字段名称
+			if fName, ok := mapping["fieldName"].(string); ok && fName != "" {
+				fieldName = fName
+			}
+			
+			// 获取 Widget ID
+			if wId, ok := mapping["widgetId"].(string); ok && wId != "" {
+				widgetId = wId
+			}
+			
+			// 获取关键字（新格式：字段名称就是关键字；旧格式：有单独的 keyword 字段）
+			if k, ok := mapping["keyword"].(string); ok && k != "" {
+				keyword = k
+			} else if fieldName != "" {
+				// 新格式：如果没有 keyword，使用字段名称作为关键字
+				keyword = fieldName
+			}
+			
+			if widgetId != "" && keyword != "" {
+				widgetIdToKeyword[widgetId] = keyword
+			}
+			
+			// 兼容旧格式：通过字段名称匹配
+			if fieldName != "" && keyword != "" {
+				fieldNameToKeyword[fieldName] = keyword
+			}
+		}
+	}
+
 	var formData []map[string]interface{}
 	for _, field := range formFields {
 		formItem := map[string]interface{}{
@@ -533,15 +635,37 @@ func (p *FeishuProvider) buildFormContentFromConfig(approval *model.Approval, fi
 			"type": field["type"],
 		}
 
-		// 获取字段名称
+		widgetId := ""
+		if id, ok := field["id"].(string); ok {
+			widgetId = id
+		}
+
+		// 获取字段名称（用于兼容旧格式）
 		fieldName := ""
 		if name, ok := field["name"].(string); ok {
 			fieldName = name
 		}
 
 		// 如果提供了字段映射配置，使用配置的关键字来匹配数据
-		if fieldMappings != nil && len(fieldMappings) > 0 {
-			keyword, exists := fieldMappings[fieldName]
+		if len(widgetIdToKeyword) > 0 || len(fieldNameToKeyword) > 0 {
+			var keyword string
+			var exists bool
+			
+			// 优先使用 Widget ID 匹配（新格式）
+			if widgetId != "" {
+				keyword, exists = widgetIdToKeyword[widgetId]
+			}
+			
+			// 如果 Widget ID 匹配失败，尝试使用字段名称匹配（兼容旧格式）
+			if !exists && fieldName != "" {
+				keyword, exists = fieldNameToKeyword[fieldName]
+				// 如果字段名称也没有匹配到，但字段名称存在，使用字段名称作为关键字（新格式）
+				if !exists {
+					keyword = fieldName
+					exists = true
+				}
+			}
+			
 			if exists && keyword != "" {
 				// 使用关键字从工单数据或审批对象中获取值
 				formItem["value"] = p.getValueByKeyword(approval, ticketFormData, keyword, field)

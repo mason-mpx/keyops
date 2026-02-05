@@ -56,11 +56,18 @@ func Setup(
 	auditHandler *handler.AuditHandler,
 	alertHandler *handler.AlertHandler,
 	onCallHandler *handler.OnCallHandler,
+	dmsInstanceHandler *handler.DMSInstanceHandler,
+	dmsQueryHandler *handler.DMSQueryHandler,
+	dmsQueryLogHandler *handler.DMSQueryLogHandler,
+	dmsPermissionHandler *handler.DMSPermissionHandler,
 	k8sPermissionService *service.K8sPermissionService,
 	roleRepo *repository.RoleRepository,
 	mode string,
 ) *gin.Engine {
 	r := gin.New()
+
+	// 设置文件上传大小限制为 1GB
+	r.MaxMultipartMemory = 1 << 30 // 1GB = 1024 * 1024 * 1024 bytes
 
 	// 使用自定义的 recovery 中间件（打印详细错误信息）
 	r.Use(middleware.RecoveryMiddleware())
@@ -189,7 +196,7 @@ func Setup(
 		{
 			files.GET("/list", fileHandler.ListFiles)             // 列出远程目录文件
 			files.POST("/upload", fileHandler.UploadFile)         // 上传文件到目标服务器
-			files.GET("/download", fileHandler.DownloadFile)     // 从目标服务器下载文件
+			files.GET("/download", fileHandler.DownloadFile)       // 从目标服务器下载文件
 			files.GET("/transfers", fileHandler.GetFileTransfers) // 获取文件传输记录
 		}
 
@@ -729,6 +736,31 @@ func Setup(
 			alerts.GET("/statistics", alertHandler.GetStatistics)            // 获取告警统计信息
 			alerts.GET("/statistics/trend", alertHandler.GetTrendStatistics) // 获取告警趋势统计
 			alerts.GET("/statistics/top", alertHandler.GetTopAlerts)         // 获取Top N告警
+
+			// 证书管理
+			// 域名证书
+			alerts.GET("/certificates/domains", alertHandler.GetDomainCertificates)          // 获取域名证书列表
+			alerts.POST("/certificates/domains", alertHandler.CreateDomainCertificate)       // 创建域名证书
+			alerts.POST("/certificates/domains/check-alerts", alertHandler.CheckCertificateAlerts) // 手动触发证书告警检查
+			// 注意：带子路径的路由必须放在 /:id 之前，避免路由冲突
+			alerts.POST("/certificates/domains/:id/refresh", alertHandler.RefreshDomainCertificate) // 刷新域名证书信息（通过HTTPS连接获取）
+			alerts.GET("/certificates/domains/:id", alertHandler.GetDomainCertificate)       // 获取域名证书详情
+			alerts.PUT("/certificates/domains/:id", alertHandler.UpdateDomainCertificate)    // 更新域名证书
+			alerts.DELETE("/certificates/domains/:id", alertHandler.DeleteDomainCertificate) // 删除域名证书
+
+			// SSL证书
+			alerts.GET("/certificates/ssl", alertHandler.GetSslCertificates)          // 获取SSL证书列表
+			alerts.GET("/certificates/ssl/:id", alertHandler.GetSslCertificate)       // 获取SSL证书详情
+			alerts.POST("/certificates/ssl", alertHandler.CreateSslCertificate)       // 创建SSL证书
+			alerts.PUT("/certificates/ssl/:id", alertHandler.UpdateSslCertificate)    // 更新SSL证书
+			alerts.DELETE("/certificates/ssl/:id", alertHandler.DeleteSslCertificate) // 删除SSL证书
+
+			// 托管证书
+			alerts.GET("/certificates/hosted", alertHandler.GetHostedCertificates)          // 获取托管证书列表
+			alerts.GET("/certificates/hosted/:id", alertHandler.GetHostedCertificate)       // 获取托管证书详情
+			alerts.POST("/certificates/hosted", alertHandler.CreateHostedCertificate)       // 创建托管证书
+			alerts.PUT("/certificates/hosted/:id", alertHandler.UpdateHostedCertificate)    // 更新托管证书
+			alerts.DELETE("/certificates/hosted/:id", alertHandler.DeleteHostedCertificate) // 删除托管证书
 		}
 
 		// Prometheus Webhook（必须使用API Key认证）
@@ -831,6 +863,36 @@ func Setup(
 			audit.DELETE("/operation-logs/:id", auditHandler.DeleteOperationLog)         // 删除操作日志
 			audit.DELETE("/operation-logs/batch", auditHandler.BatchDeleteOperationLogs) // 批量删除操作日志
 			audit.GET("/pod-commands", auditHandler.GetPodCommandLogs)                   // 获取 Pod 命令日志列表
+		}
+
+		// 数据库管理 (DMS)
+		dms := authenticated.Group("/dms")
+		{
+			// 实例管理
+			dms.GET("/instances", dmsInstanceHandler.ListInstances)                    // 获取实例列表
+			dms.POST("/instances", dmsInstanceHandler.CreateInstance)                // 创建实例
+			dms.GET("/instances/:id", dmsInstanceHandler.GetInstance)                // 获取实例详情
+			dms.PUT("/instances/:id", dmsInstanceHandler.UpdateInstance)             // 更新实例
+			dms.DELETE("/instances/:id", dmsInstanceHandler.DeleteInstance)          // 删除实例
+			dms.POST("/instances/:id/test", dmsInstanceHandler.TestConnection)       // 测试连接
+
+			// 查询执行
+			dms.POST("/query/execute", dmsQueryHandler.ExecuteQuery)                 // 执行查询
+			dms.GET("/query/databases", dmsQueryHandler.GetDatabases)                // 获取数据库列表
+			dms.GET("/query/tables", dmsQueryHandler.GetTables)                      // 获取表列表
+
+			// 查询日志
+			dms.GET("/logs/queries", dmsQueryLogHandler.ListQueryLogs)                // 获取查询日志列表
+			dms.GET("/logs/queries/:id", dmsQueryLogHandler.GetQueryLog)              // 获取查询日志详情
+
+			// 权限管理
+			dms.GET("/permissions", dmsPermissionHandler.GetUserPermissions)           // 获取用户权限列表
+			dms.GET("/permissions/my", dmsPermissionHandler.GetMyPermissions)         // 获取我的权限
+			dms.POST("/permissions", dmsPermissionHandler.GrantPermission)           // 分配权限
+			dms.POST("/permissions/batch", dmsPermissionHandler.BatchGrantPermissions) // 批量分配权限
+			dms.PUT("/permissions", dmsPermissionHandler.UpdatePermission)            // 更新权限（只更新元数据）
+			dms.PUT("/permissions/resource", dmsPermissionHandler.UpdatePermissionResource) // 更新权限资源路径
+			dms.DELETE("/permissions", dmsPermissionHandler.RevokePermission)        // 回收权限
 		}
 	}
 	// authenticated路由组结束

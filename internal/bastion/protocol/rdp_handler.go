@@ -312,7 +312,7 @@ func (h *RDPHandler) Connect(ctx context.Context, config *ConnectionConfig) erro
 	// 构建 Guacamole 连接参数
 	// 注意：参数顺序需要根据 guacd 返回的 args 响应来调整
 	params := []string{
-		"version", "VERSION_1_5_0",
+		"version", "VERSION_1_5_0", // 协议版本（1.6.0 版本仍支持此协议版本）
 		"client-name", "ZJump",
 		"scheme", "rdp",
 		"hostname", config.HostIP,

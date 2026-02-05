@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS users (
     auto_disable_on_expiry BOOLEAN DEFAULT TRUE COMMENT 'Auto disable account when expired',
     last_login_time TIMESTAMP NULL COMMENT 'Last login time',
     last_login_ip VARCHAR(45) COMMENT 'Last login IP address',
+    organization_id VARCHAR(36) COMMENT '所属部门ID（关联organizations表）',
     
     -- 2FA related fields
     two_factor_enabled BOOLEAN DEFAULT FALSE COMMENT 'Whether 2FA is enabled for this user',
@@ -51,7 +52,8 @@ CREATE TABLE IF NOT EXISTS users (
     INDEX idx_role (role),
     INDEX idx_auth_method (auth_method),
     INDEX idx_expires_at (expires_at),
-    INDEX idx_two_factor_enabled (two_factor_enabled)
+    INDEX idx_two_factor_enabled (two_factor_enabled),
+    INDEX idx_organization_id (organization_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT='Platform users with SSH key authentication support';
 
@@ -524,6 +526,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
     ticket_number VARCHAR(50) NOT NULL COMMENT '工单编号',
     template_id BIGINT UNSIGNED NULL COMMENT '模板ID（可选）',
+    type VARCHAR(20) DEFAULT 'daily' COMMENT '工单类型: daily(日常工单), deployment(发布工单)',
     title VARCHAR(200) NOT NULL COMMENT '工单标题',
     form_data JSON NOT NULL COMMENT '表单数据 (JSON)',
     status VARCHAR(20) DEFAULT 'draft' COMMENT '状态: draft/submitted/approved/rejected/cancelled',
@@ -543,6 +546,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_ticket_number (ticket_number),
     INDEX idx_template_id (template_id),
+    INDEX idx_type (type),
     INDEX idx_status (status),
     INDEX idx_applicant_id (applicant_id),
     INDEX idx_created_at (created_at),
@@ -920,7 +924,8 @@ COMMIT;
 
 -- Insert default admin user (password: admin123, should be changed after first login)
 -- Password hash is bcrypt hash of 'admin123'
-INSERT IGNORE INTO users (id, username, password, full_name, email, role, status, created_at, updated_at)
+-- Note: organization_id will be set after organizations table is created
+INSERT IGNORE INTO users (id, username, password, full_name, email, role, status, organization_id, created_at, updated_at)
 VALUES
     ('00000000-0000-0000-0000-000000000001', 
      'admin', 
@@ -929,6 +934,7 @@ VALUES
      'admin@keyops.local',
      'admin',
      'active',
+     NULL, -- Will be updated after organizations are created
      NOW(),
      NOW());
 
@@ -1219,6 +1225,94 @@ CREATE TABLE IF NOT EXISTS casbin_models (
 COMMENT='Casbin模型配置表';
 
 -- ============================================================================
+-- Database Management System (DMS) Tables
+-- ============================================================================
+
+-- 数据库实例表
+CREATE TABLE IF NOT EXISTS db_instances (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL COMMENT '实例名称',
+    db_type VARCHAR(50) NOT NULL DEFAULT 'mysql' COMMENT '数据库类型: mysql, postgresql, mongodb, redis',
+    host VARCHAR(255) NOT NULL COMMENT '数据库地址',
+    port INT NOT NULL DEFAULT 3306 COMMENT '端口',
+    username VARCHAR(255) COMMENT '用户名（Redis 可为空）',
+    password VARCHAR(255) NOT NULL COMMENT '密码（加密存储）',
+    database_name VARCHAR(255) COMMENT '默认数据库/数据库名',
+    auth_database VARCHAR(255) COMMENT 'MongoDB 认证数据库',
+    charset VARCHAR(50) DEFAULT 'utf8mb4' COMMENT '字符集（SQL 数据库）',
+    connection_string TEXT COMMENT '连接字符串（MongoDB/Redis 可选）',
+    ssl_enabled BOOLEAN DEFAULT FALSE COMMENT '是否启用 SSL',
+    ssl_cert TEXT COMMENT 'SSL 证书（可选）',
+    description TEXT COMMENT '描述',
+    is_enabled BOOLEAN DEFAULT TRUE COMMENT '是否启用',
+    created_by VARCHAR(36) NOT NULL COMMENT '创建人',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    INDEX idx_db_type (db_type),
+    INDEX idx_is_enabled (is_enabled),
+    INDEX idx_created_by (created_by),
+    INDEX idx_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='数据库实例表';
+
+-- 数据库权限元数据表（补充 Casbin 规则）
+CREATE TABLE IF NOT EXISTS db_permission_metadata (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL COMMENT '用户ID',
+    instance_id BIGINT UNSIGNED NOT NULL COMMENT '实例ID',
+    database_name VARCHAR(255) COMMENT '数据库名（NULL表示实例级别）',
+    table_name VARCHAR(255) COMMENT '表名（NULL表示数据库级别）',
+    permission_type VARCHAR(50) NOT NULL COMMENT '权限类型: read, write, admin',
+    granted_by VARCHAR(36) NOT NULL COMMENT '授权人',
+    granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '授权时间',
+    expires_at TIMESTAMP NULL COMMENT '过期时间',
+    description TEXT COMMENT '权限说明',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    INDEX idx_user_id (user_id),
+    INDEX idx_instance_id (instance_id),
+    INDEX idx_expires_at (expires_at),
+    INDEX idx_user_instance_db_table (user_id, instance_id, database_name, table_name),
+    FOREIGN KEY (instance_id) REFERENCES db_instances(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='数据库权限元数据表（补充 Casbin 规则）';
+
+-- 查询日志表（支持多种数据库类型）
+CREATE TABLE IF NOT EXISTS query_logs (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL COMMENT '用户ID',
+    username VARCHAR(50) NOT NULL COMMENT '用户名',
+    instance_id BIGINT UNSIGNED NOT NULL COMMENT '实例ID',
+    instance_name VARCHAR(255) NOT NULL COMMENT '实例名称',
+    db_type VARCHAR(50) NOT NULL COMMENT '数据库类型: mysql, postgresql, mongodb, redis',
+    database_name VARCHAR(255) COMMENT '数据库名/集合名/Key前缀',
+    query_content TEXT NOT NULL COMMENT '查询内容（SQL/MongoDB查询/Redis命令）',
+    query_type VARCHAR(50) COMMENT '查询类型: SELECT, INSERT, UPDATE, DELETE, DDL, FIND, GET, SET等',
+    affected_rows INT DEFAULT 0 COMMENT '影响行数/文档数',
+    result_count INT DEFAULT 0 COMMENT '返回结果数量',
+    execution_time_ms INT COMMENT '执行时间（毫秒）',
+    status VARCHAR(20) NOT NULL DEFAULT 'success' COMMENT '状态: success, error, timeout',
+    error_message TEXT COMMENT '错误信息',
+    result_preview TEXT COMMENT '结果预览（前1000字符）',
+    client_ip VARCHAR(45) COMMENT '客户端IP',
+    user_agent VARCHAR(255) COMMENT '用户代理',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '执行时间',
+    
+    INDEX idx_user_id (user_id),
+    INDEX idx_instance_id (instance_id),
+    INDEX idx_db_type (db_type),
+    INDEX idx_database_name (database_name),
+    INDEX idx_query_type (query_type),
+    INDEX idx_status (status),
+    INDEX idx_created_at (created_at),
+    FULLTEXT KEY ft_query_content (query_content) COMMENT '全文索引，用于查询内容搜索',
+    FOREIGN KEY (instance_id) REFERENCES db_instances(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='查询日志表（支持多种数据库类型）';
+
+-- ============================================================================
 -- Initialize Menu Data (菜单数据初始化)
 -- ============================================================================
 
@@ -1234,6 +1328,8 @@ INSERT INTO menus (id, parent_id, path, name, component, hidden, sort, title, ic
 ('menu-home', '', '', 'home', '', false, 1, '首页', 'Home', false, '', false, false, NOW(), NOW()),
 -- 首页子菜单：云账单大盘（已集成到主机大盘中，隐藏独立菜单）
 ('menu-cloud-bill-dashboard', 'menu-home', '/cloud-bill-dashboard', 'cloudBillDashboard', 'pages/dashboard/CloudBillDashboard', true, 5, '云账单大盘', 'AccountBalance', false, '', false, false, NOW(), NOW()),
+-- 首页子菜单：告警大盘（从告警中心移动到首页）
+('menu-monitor-alert-dashboard', 'menu-home', '/monitors/alert-dashboard', 'monitorAlertDashboard', 'pages/monitor/AlertDashboard', false, 6, '告警大盘', 'Dashboard', false, '', false, false, NOW(), NOW()),
 
 -- 组织管理分组（原用户权限）
 ('menu-user-permission', '', '', 'userPermission', '', false, 2, '组织管理', 'AccountTree', false, '', false, false, NOW(), NOW()),
@@ -1302,6 +1398,21 @@ INSERT INTO menus (id, parent_id, path, name, component, hidden, sort, title, ic
 ('menu-k8s-configmaps', 'menu-k8s-storage', '/k8s/configmaps', 'k8sConfigMaps', 'pages/k8s/ConfigMaps', false, 4, 'ConfigMaps', 'Code', false, '', false, false, NOW(), NOW()),
 ('menu-k8s-secrets', 'menu-k8s-storage', '/k8s/secrets', 'k8sSecrets', 'pages/k8s/Secrets', false, 5, 'Secrets', 'VpnKey', false, '', false, false, NOW(), NOW()),
 
+-- 工单管理分组（一级菜单）
+('menu-workorder', '', '', 'workorder', '', false, 6, '工单管理', 'Assignment', false, '', false, false, NOW(), NOW()),
+-- 工单管理子菜单（不包含发布工单）
+('menu-daily-workorder', 'menu-workorder', '/daily-workorders', 'dailyWorkorder', 'pages/workorder/DailyWorkorder', false, 1, '运维工单', 'Assignment', false, '', false, false, NOW(), NOW()),
+('menu-tickets', 'menu-workorder', '/tickets', 'tickets', 'pages/workorder/Tickets', false, 2, '我的工单', 'List', false, '', false, false, NOW(), NOW()),
+('menu-form-templates', 'menu-workorder', '/form-templates', 'formTemplates', 'pages/workorder/FormTemplates', false, 3, '设计模版', 'Description', false, '', false, false, NOW(), NOW()),
+
+-- 数据库管理分组（一级菜单）
+('menu-dms', '', '', 'dms', '', false, 7, '数据库管理', 'Database', false, '', false, false, NOW(), NOW()),
+-- 数据库管理二级菜单
+('menu-dms-instances', 'menu-dms', '/dms/instances', 'dmsInstances', 'pages/dms/Instances', false, 1, '实例管理', 'Storage', false, '', false, false, NOW(), NOW()),
+('menu-dms-query', 'menu-dms', '/dms/query', 'dmsQuery', 'pages/dms/Query', false, 2, 'SQL查询', 'Code', false, '', false, false, NOW(), NOW()),
+('menu-dms-logs', 'menu-dms', '/dms/logs', 'dmsLogs', 'pages/dms/QueryLogs', false, 3, '查询日志', 'History', false, '', false, false, NOW(), NOW()),
+('menu-dms-permissions', 'menu-dms', '/dms/permissions', 'dmsPermissions', 'pages/dms/Permissions', false, 4, '权限管理', 'Security', false, '', false, false, NOW(), NOW()),
+
 -- 监控告警分组（一级菜单）
 ('menu-monitor', '', '', 'monitor', '', false, 8, '监控告警', 'Monitor', false, '', false, false, NOW(), NOW()),
 
@@ -1316,10 +1427,11 @@ INSERT INTO menus (id, parent_id, path, name, component, hidden, sort, title, ic
 ('menu-monitor-oncall', 'menu-monitor', '', 'monitorOnCall', '', false, 4, '值班管理', 'On-Call', false, '', false, false, NOW(), NOW()),
 
 -- 监控告警三级菜单
--- 告警中心下的三级菜单
-('menu-monitor-alert-dashboard', 'menu-monitor-alert-center', '/monitors/alert-dashboard', 'monitorAlertDashboard', 'pages/monitor/AlertDashboard', false, 0, '告警大盘', 'Dashboard', false, '', false, false, NOW(), NOW()),
+-- 告警中心下的三级菜单（告警大盘已移动到首页）
+-- ('menu-monitor-alert-dashboard', 'menu-monitor-alert-center', '/monitors/alert-dashboard', 'monitorAlertDashboard', 'pages/monitor/AlertDashboard', false, 0, '告警大盘', 'Dashboard', false, '', false, false, NOW(), NOW()),
 ('menu-monitor-alert-event', 'menu-monitor-alert-center', '/monitors/alert-event', 'monitorAlertEvent', 'pages/monitor/AlertEvent', false, 1, '告警事件', 'Warning', false, '', false, false, NOW(), NOW()),
 ('menu-monitor-strategy-log', 'menu-monitor-alert-center', '/monitors/strategy-log', 'monitorStrategyLog', 'pages/monitor/StrategyLog', false, 2, '策略日志', 'Description', false, '', false, false, NOW(), NOW()),
+('menu-monitor-certificate', 'menu-monitor-alert-center', '/monitors/certificate', 'monitorCertificate', 'pages/monitor/Certificate', false, 3, '证书管理', 'VerifiedUser', false, '', false, false, NOW(), NOW()),
 
 -- 规则配置下的三级菜单
 ('menu-monitor-datasource', 'menu-monitor-rule-config', '/monitors/datasource', 'monitorDatasource', 'pages/monitor/Datasource', false, 1, '数据源', 'Storage', false, '', false, false, NOW(), NOW()),
@@ -1408,8 +1520,10 @@ UPDATE menus SET parent_id = '', sort = 3 WHERE id = 'menu-assets';
 -- 更新后续一级菜单的排序（资产管理插入后，后续菜单需要往后移）
 UPDATE menus SET sort = 4 WHERE id = 'menu-bastion';
 UPDATE menus SET sort = 5 WHERE id = 'menu-k8s';
-UPDATE menus SET sort = 6 WHERE id = 'menu-monitor';
-UPDATE menus SET sort = 7 WHERE id = 'menu-system';
+UPDATE menus SET sort = 6 WHERE id = 'menu-workorder';
+UPDATE menus SET sort = 7 WHERE id = 'menu-dms';
+UPDATE menus SET sort = 8 WHERE id = 'menu-monitor';
+UPDATE menus SET sort = 9 WHERE id = 'menu-system';
 
 -- 更新API分组：将组织管理相关的API从'User'改为'Organization'
 UPDATE apis SET `group` = 'Organization' WHERE `group` = 'User' AND path LIKE '/user-management/%';
@@ -1418,6 +1532,11 @@ UPDATE apis SET `group` = 'Organization' WHERE `group` = 'User' AND path LIKE '/
 UPDATE menus SET parent_id = 'menu-assets', sort = 1 WHERE id = 'menu-assets-list';
 UPDATE menus SET parent_id = 'menu-assets', sort = 2 WHERE id = 'menu-host-groups';
 UPDATE menus SET parent_id = 'menu-assets', sort = 3 WHERE id = 'menu-asset-sync';
+
+-- 更新工单管理下子菜单的排序（确保排序正确，不包含发布工单）
+UPDATE menus SET parent_id = 'menu-workorder', sort = 1 WHERE id = 'menu-daily-workorder';
+UPDATE menus SET parent_id = 'menu-workorder', sort = 2 WHERE id = 'menu-tickets';
+UPDATE menus SET parent_id = 'menu-workorder', sort = 3 WHERE id = 'menu-form-templates';
 
 -- 更新工单管理的子菜单
 -- 将系统大盘拆分成3个独立的二级菜单：组织大盘、应用大盘、主机大盘
@@ -1439,15 +1558,19 @@ ON DUPLICATE KEY UPDATE updated_at = NOW();
 UPDATE menus SET default_menu = true WHERE id = 'menu-org-dashboard';
 UPDATE menus SET default_menu = false WHERE id IN ('menu-app-dashboard', 'menu-system-dashboard');
 
--- 删除工单管理和配置管理菜单及其权限（如果存在）
+-- 删除发布工单菜单及其权限（如果存在，因为暂时不添加）
+DELETE FROM menu_permissions WHERE menu_id = 'menu-create-ticket';
+DELETE FROM menus WHERE id = 'menu-create-ticket';
+
+-- 删除全部工单、我的工单和工单配置菜单及其权限（已合并为工单列表）
+DELETE FROM menu_permissions WHERE menu_id IN ('menu-all-tickets', 'menu-my-tickets', 'menu-approval-config');
+DELETE FROM menus WHERE id IN ('menu-all-tickets', 'menu-my-tickets', 'menu-approval-config');
+
+-- 删除配置管理菜单及其权限（如果存在）
 DELETE FROM menu_permissions WHERE menu_id IN (
-    'menu-workorder', 'menu-daily-workorder', 'menu-form-templates', 'menu-category-management',
-    'menu-create-ticket', 'menu-all-tickets', 'menu-my-tickets', 'menu-draft-box', 'menu-approval-config',
     'menu-config', 'menu-config-deploy-tools', 'menu-config-app-deploy', 'menu-config-jenkins', 'menu-config-argocd'
 );
 DELETE FROM menus WHERE id IN (
-    'menu-workorder', 'menu-daily-workorder', 'menu-form-templates', 'menu-category-management',
-    'menu-create-ticket', 'menu-all-tickets', 'menu-my-tickets', 'menu-draft-box', 'menu-approval-config',
     'menu-config', 'menu-config-deploy-tools', 'menu-config-app-deploy', 'menu-config-jenkins', 'menu-config-argocd'
 );
 
@@ -1589,23 +1712,21 @@ DELETE FROM menus WHERE id IN (
     'menu-bill-vm', 'menu-bill-price', 'menu-bill-resource'
 );
 
--- 删除旧的 menu-tickets 菜单（如果存在）
-DELETE FROM menu_permissions WHERE menu_id = 'menu-tickets';
-DELETE FROM menus WHERE id = 'menu-tickets';
-
 -- 删除已移除的 menu-monitor-record-rule 菜单及其权限（如果存在）
 DELETE FROM menu_permissions WHERE menu_id = 'menu-monitor-record-rule';
 DELETE FROM menus WHERE id = 'menu-monitor-record-rule';
 
 -- 确保顶级菜单的 parent_id 为空字符串
 -- 注意：这个 UPDATE 必须在更新子菜单之后执行，确保顶级菜单的 parent_id 为空
--- 主机大盘和日常工单已迁移到工单管理下，资产管理已移出组织管理作为一级菜单
+-- 主机大盘和运维工单已迁移到工单管理下，资产管理已移出组织管理作为一级菜单
 UPDATE menus SET parent_id = '' WHERE id IN (
     'menu-home',
     'menu-user-permission',
     'menu-assets',
     'menu-bastion',
     'menu-k8s',
+    'menu-workorder',
+    'menu-dms',
     'menu-deployment',
     'menu-monitor',
     'menu-personal',
@@ -2165,6 +2286,71 @@ CREATE TABLE IF NOT EXISTS alert_restrains (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT='告警抑制表';
 
+-- ============================================================================
+-- 证书管理表
+-- ============================================================================
+
+-- 域名证书表（监控域名的SSL证书过期情况）
+CREATE TABLE IF NOT EXISTS domain_certificates (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT 'ID',
+    domain VARCHAR(255) NOT NULL COMMENT '域名',
+    port INT DEFAULT 443 COMMENT '端口',
+    ssl_certificate TEXT COMMENT 'SSL证书内容',
+    ssl_certificate_key TEXT COMMENT 'SSL证书私钥',
+    start_time TIMESTAMP NULL COMMENT '证书签发时间',
+    expire_time TIMESTAMP NULL COMMENT '证书过期时间',
+    expire_days INT DEFAULT 0 COMMENT '过期剩余天数',
+    is_monitor BOOLEAN DEFAULT TRUE COMMENT '是否监控',
+    auto_update BOOLEAN DEFAULT TRUE COMMENT '是否自动更新',
+    connect_status BOOLEAN COMMENT '连接状态',
+    alert_days INT DEFAULT 30 COMMENT '告警天数阈值（剩余天数小于等于此值时发送告警）',
+    alert_template_id INT UNSIGNED COMMENT '告警模板ID',
+    alert_channel_ids TEXT COMMENT '告警渠道ID数组（JSON格式，如 [1,2,3]）',
+    last_alert_time TIMESTAMP NULL COMMENT '最后一次发送告警的时间（用于防止重复发送）',
+    comment TEXT COMMENT '备注',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY uk_domain_port (domain, port),
+    INDEX idx_domain (domain),
+    INDEX idx_expire_time (expire_time),
+    INDEX idx_is_monitor (is_monitor),
+    INDEX idx_alert_template_id (alert_template_id),
+    INDEX idx_last_alert_time (last_alert_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='域名证书表';
+
+-- SSL证书表（手动管理的SSL证书文件）
+CREATE TABLE IF NOT EXISTS ssl_certificates (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT 'ID',
+    domain VARCHAR(255) NOT NULL COMMENT '域名',
+    ssl_certificate TEXT COMMENT 'SSL证书内容',
+    ssl_certificate_key TEXT COMMENT 'SSL证书私钥',
+    start_time TIMESTAMP NULL COMMENT '证书签发时间',
+    expire_time TIMESTAMP NULL COMMENT '证书过期时间',
+    comment TEXT COMMENT '备注',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    INDEX idx_domain (domain),
+    INDEX idx_expire_time (expire_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='SSL证书表';
+
+-- 托管证书表（托管在系统中的证书文件）
+CREATE TABLE IF NOT EXISTS hosted_certificates (
+    id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT 'ID',
+    domain VARCHAR(255) NOT NULL COMMENT '域名',
+    ssl_certificate TEXT COMMENT 'SSL证书内容',
+    ssl_certificate_key TEXT COMMENT 'SSL证书私钥',
+    start_time TIMESTAMP NULL COMMENT '证书签发时间',
+    expire_time TIMESTAMP NULL COMMENT '证书过期时间',
+    comment TEXT COMMENT '备注',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    INDEX idx_domain (domain),
+    INDEX idx_expire_time (expire_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+COMMENT='托管证书表';
+
 -- 告警模板表
 CREATE TABLE IF NOT EXISTS alert_templates (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY COMMENT 'ID',
@@ -2507,6 +2693,10 @@ CREATE TABLE IF NOT EXISTS organizations (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 COMMENT='组织架构表（支持层级结构）';
 
+-- 添加users表的外键约束（需要在organizations表创建之后）
+ALTER TABLE users ADD CONSTRAINT fk_users_organization_id 
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL;
+
 -- Insert organization test data
 -- BizGroup (顶级组织)
 INSERT INTO organizations (id, unit_code, unit_name, unit_type, unit_owner, is_active, parent_id, sort_order) VALUES
@@ -2671,6 +2861,12 @@ INSERT INTO organizations (id, unit_code, unit_name, unit_type, unit_owner, is_a
 SELECT UUID(), 'pr-dept', '公关部门', 'Department', '马二三', TRUE,
     (SELECT id FROM organizations WHERE unit_code = 'marketing-brand' LIMIT 1), 2
 WHERE EXISTS (SELECT 1 FROM organizations WHERE unit_code = 'marketing-brand');
+
+-- 更新admin用户的部门关联（关联到backend-dept部门）
+UPDATE users 
+SET organization_id = (SELECT id FROM organizations WHERE unit_code = 'backend-dept' LIMIT 1)
+WHERE username = 'admin' 
+  AND EXISTS (SELECT 1 FROM organizations WHERE unit_code = 'backend-dept');
 
 -- ============================================================================
 -- Application Management Tables (服务管理)

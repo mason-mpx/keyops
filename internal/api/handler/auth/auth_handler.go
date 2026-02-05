@@ -208,8 +208,9 @@ func (h *AuthHandler) GetUsersWithRoles(c *gin.Context) {
 func (h *AuthHandler) CreateUserByAdmin(c *gin.Context) {
 	var req struct {
 		model.RegisterRequest
-		Role       string `json:"role" binding:"required"`
-		AuthMethod string `json:"authMethod"`
+		Role           string  `json:"role" binding:"required"`
+		AuthMethod     string  `json:"authMethod"`
+		OrganizationID *string `json:"organizationId"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -228,7 +229,7 @@ func (h *AuthHandler) CreateUserByAdmin(c *gin.Context) {
 		return
 	}
 
-	user, err := h.service.CreateUser(&req.RegisterRequest, req.Role, req.AuthMethod)
+	user, err := h.service.CreateUser(&req.RegisterRequest, req.Role, req.AuthMethod, req.OrganizationID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, model.Error(400, err.Error()))
 		return
@@ -246,6 +247,7 @@ func (h *AuthHandler) UpdateUserByAdmin(c *gin.Context) {
 		Email               string  `json:"email"`
 		ExpiresAt           *string `json:"expiresAt"` // ISO 8601 格式的时间字符串
 		AutoDisableOnExpiry *bool   `json:"autoDisableOnExpiry"`
+		OrganizationID      *string `json:"organizationId"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -254,7 +256,7 @@ func (h *AuthHandler) UpdateUserByAdmin(c *gin.Context) {
 	}
 
 	// 基本信息更新
-	if err := h.service.UpdateUserInfo(userID, req.FullName, req.Email); err != nil {
+	if err := h.service.UpdateUserInfo(userID, req.FullName, req.Email, req.OrganizationID); err != nil {
 		c.JSON(http.StatusBadRequest, model.Error(400, err.Error()))
 		return
 	}

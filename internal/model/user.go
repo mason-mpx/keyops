@@ -23,6 +23,7 @@ type User struct {
 	AutoDisableOnExpiry    bool       `json:"autoDisableOnExpiry" gorm:"type:boolean;default:true"`
 	LastLoginTime          *time.Time `json:"lastLoginTime" gorm:"type:timestamp"`
 	LastLoginIP            string     `json:"lastLoginIp" gorm:"type:varchar(45)"`
+	OrganizationID         *string    `json:"organizationId,omitempty" gorm:"type:varchar(36);index"` // 所属部门ID
 
 	// 2FA相关字段
 	TwoFactorEnabled     bool       `json:"twoFactorEnabled" gorm:"column:two_factor_enabled;type:boolean;default:false"`

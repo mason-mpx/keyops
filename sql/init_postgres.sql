@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS users (
     auto_disable_on_expiry BOOLEAN DEFAULT TRUE ,
     last_login_time TIMESTAMP ,
     last_login_ip VARCHAR(45) ,
+    organization_id VARCHAR(36) ,
 
     -- 2FA related fields
     two_factor_enabled BOOLEAN DEFAULT FALSE ,
@@ -54,9 +55,9 @@ CREATE TABLE IF NOT EXISTS users (
 
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-
 )
 ;
+CREATE INDEX idx_users_organization_id ON users(organization_id);
 
 -- ============================================================================
 -- Host Management Tables
@@ -469,6 +470,7 @@ CREATE TABLE IF NOT EXISTS tickets (
     id SERIAL PRIMARY KEY,
     ticket_number VARCHAR(50) NOT NULL ,
     template_id BIGINT NULL ,
+    type VARCHAR(20) DEFAULT 'daily' ,
     title VARCHAR(200) NOT NULL ,
     form_data JSONB NOT NULL ,
     status VARCHAR(20) DEFAULT 'draft' ,
@@ -814,7 +816,8 @@ CREATE TABLE IF NOT EXISTS permission_rule_host_groups (
 
 -- Insert default admin user (password: admin123, should be changed after first login)
 -- Password hash is bcrypt hash of 'admin123'
-INSERT INTO users (id, username, password, full_name, email, role, status, created_at, updated_at)
+-- Note: organization_id will be set after organizations table is created
+INSERT INTO users (id, username, password, full_name, email, role, status, organization_id, created_at, updated_at)
 VALUES
     ('00000000-0000-0000-0000-000000000001',
      'admin',
@@ -823,6 +826,7 @@ VALUES
      'admin@keyops.local',
      'admin',
      'active',
+     NULL, -- Will be updated after organizations are created
      NOW(),
      NOW());
 
@@ -1098,6 +1102,8 @@ INSERT INTO menus (id, parent_id, path, name, component, hidden, sort, title, ic
 ('menu-home', '', '', 'home', '', false, 1, '首页', 'Home', false, '', false, false, NOW(), NOW()),
 -- 首页子菜单：云账单大盘（已集成到主机大盘中，隐藏独立菜单）
 ('menu-cloud-bill-dashboard', 'menu-home', '/cloud-bill-dashboard', 'cloudBillDashboard', 'pages/dashboard/CloudBillDashboard', true, 5, '云账单大盘', 'AccountBalance', false, '', false, false, NOW(), NOW()),
+-- 首页子菜单：告警大盘（从告警中心移动到首页）
+('menu-monitor-alert-dashboard', 'menu-home', '/monitors/alert-dashboard', 'monitorAlertDashboard', 'pages/monitor/AlertDashboard', false, 6, '告警大盘', 'Dashboard', false, '', false, false, NOW(), NOW()),
 
 -- 组织管理分组（原用户权限）
 ('menu-user-permission', '', '', 'userPermission', '', false, 2, '组织管理', 'AccountTree', false, '', false, false, NOW(), NOW()),
@@ -1166,6 +1172,21 @@ INSERT INTO menus (id, parent_id, path, name, component, hidden, sort, title, ic
 ('menu-k8s-configmaps', 'menu-k8s-storage', '/k8s/configmaps', 'k8sConfigMaps', 'pages/k8s/ConfigMaps', false, 4, 'ConfigMaps', 'Code', false, '', false, false, NOW(), NOW()),
 ('menu-k8s-secrets', 'menu-k8s-storage', '/k8s/secrets', 'k8sSecrets', 'pages/k8s/Secrets', false, 5, 'Secrets', 'VpnKey', false, '', false, false, NOW(), NOW()),
 
+-- 工单管理分组（一级菜单）
+('menu-workorder', '', '', 'workorder', '', false, 6, '工单管理', 'Assignment', false, '', false, false, NOW(), NOW()),
+-- 工单管理子菜单（不包含发布工单）
+('menu-daily-workorder', 'menu-workorder', '/daily-workorders', 'dailyWorkorder', 'pages/workorder/DailyWorkorder', false, 1, '运维工单', 'Assignment', false, '', false, false, NOW(), NOW()),
+('menu-tickets', 'menu-workorder', '/tickets', 'tickets', 'pages/workorder/Tickets', false, 2, '我的工单', 'List', false, '', false, false, NOW(), NOW()),
+('menu-form-templates', 'menu-workorder', '/form-templates', 'formTemplates', 'pages/workorder/FormTemplates', false, 3, '设计模版', 'Description', false, '', false, false, NOW(), NOW()),
+
+-- 数据库管理分组（一级菜单）
+('menu-dms', '', '', 'dms', '', false, 7, '数据库管理', 'Database', false, '', false, false, NOW(), NOW()),
+-- 数据库管理二级菜单
+('menu-dms-instances', 'menu-dms', '/dms/instances', 'dmsInstances', 'pages/dms/Instances', false, 1, '实例管理', 'Storage', false, '', false, false, NOW(), NOW()),
+('menu-dms-query', 'menu-dms', '/dms/query', 'dmsQuery', 'pages/dms/Query', false, 2, 'SQL查询', 'Code', false, '', false, false, NOW(), NOW()),
+('menu-dms-logs', 'menu-dms', '/dms/logs', 'dmsLogs', 'pages/dms/QueryLogs', false, 3, '查询日志', 'History', false, '', false, false, NOW(), NOW()),
+('menu-dms-permissions', 'menu-dms', '/dms/permissions', 'dmsPermissions', 'pages/dms/Permissions', false, 4, '权限管理', 'Security', false, '', false, false, NOW(), NOW()),
+
 -- 监控告警分组（一级菜单）
 ('menu-monitor', '', '', 'monitor', '', false, 8, '监控告警', 'Monitor', false, '', false, false, NOW(), NOW()),
 
@@ -1180,10 +1201,11 @@ INSERT INTO menus (id, parent_id, path, name, component, hidden, sort, title, ic
 ('menu-monitor-oncall', 'menu-monitor', '', 'monitorOnCall', '', false, 4, '值班管理', 'On-Call', false, '', false, false, NOW(), NOW()),
 
 -- 监控告警三级菜单
--- 告警中心下的三级菜单
-('menu-monitor-alert-dashboard', 'menu-monitor-alert-center', '/monitors/alert-dashboard', 'monitorAlertDashboard', 'pages/monitor/AlertDashboard', false, 0, '告警大盘', 'Dashboard', false, '', false, false, NOW(), NOW()),
+-- 告警中心下的三级菜单（告警大盘已移动到首页）
+-- ('menu-monitor-alert-dashboard', 'menu-monitor-alert-center', '/monitors/alert-dashboard', 'monitorAlertDashboard', 'pages/monitor/AlertDashboard', false, 0, '告警大盘', 'Dashboard', false, '', false, false, NOW(), NOW()),
 ('menu-monitor-alert-event', 'menu-monitor-alert-center', '/monitors/alert-event', 'monitorAlertEvent', 'pages/monitor/AlertEvent', false, 1, '告警事件', 'Warning', false, '', false, false, NOW(), NOW()),
 ('menu-monitor-strategy-log', 'menu-monitor-alert-center', '/monitors/strategy-log', 'monitorStrategyLog', 'pages/monitor/StrategyLog', false, 2, '策略日志', 'Description', false, '', false, false, NOW(), NOW()),
+('menu-monitor-certificate', 'menu-monitor-alert-center', '/monitors/certificate', 'monitorCertificate', 'pages/monitor/Certificate', false, 3, '证书管理', 'VerifiedUser', false, '', false, false, NOW(), NOW()),
 
 -- 规则配置下的三级菜单
 ('menu-monitor-datasource', 'menu-monitor-rule-config', '/monitors/datasource', 'monitorDatasource', 'pages/monitor/Datasource', false, 1, '数据源', 'Storage', false, '', false, false, NOW(), NOW()),
@@ -1272,13 +1294,20 @@ UPDATE menus SET parent_id = '', sort = 3 WHERE id = 'menu-assets';
 -- 更新后续一级菜单的排序（资产管理插入后，后续菜单需要往后移）
 UPDATE menus SET sort = 4 WHERE id = 'menu-bastion';
 UPDATE menus SET sort = 5 WHERE id = 'menu-k8s';
-UPDATE menus SET sort = 6 WHERE id = 'menu-monitor';
-UPDATE menus SET sort = 7 WHERE id = 'menu-system';
+UPDATE menus SET sort = 6 WHERE id = 'menu-workorder';
+UPDATE menus SET sort = 7 WHERE id = 'menu-dms';
+UPDATE menus SET sort = 8 WHERE id = 'menu-monitor';
+UPDATE menus SET sort = 9 WHERE id = 'menu-system';
 
 -- 更新资产管理的子菜单
 UPDATE menus SET parent_id = 'menu-assets', sort = 1 WHERE id = 'menu-assets-list';
 UPDATE menus SET parent_id = 'menu-assets', sort = 2 WHERE id = 'menu-host-groups';
 UPDATE menus SET parent_id = 'menu-assets', sort = 3 WHERE id = 'menu-asset-sync';
+
+-- 更新工单管理下子菜单的排序（确保排序正确，不包含发布工单）
+UPDATE menus SET parent_id = 'menu-workorder', sort = 1 WHERE id = 'menu-daily-workorder';
+UPDATE menus SET parent_id = 'menu-workorder', sort = 2 WHERE id = 'menu-tickets';
+UPDATE menus SET parent_id = 'menu-workorder', sort = 3 WHERE id = 'menu-form-templates';
 
 -- 更新工单管理的子菜单
 -- 将系统大盘拆分成3个独立的二级菜单：组织大盘、应用大盘、主机大盘
@@ -1300,15 +1329,19 @@ ON CONFLICT (id) DO UPDATE SET updated_at = NOW();
 UPDATE menus SET default_menu = true WHERE id = 'menu-org-dashboard';
 UPDATE menus SET default_menu = false WHERE id IN ('menu-app-dashboard', 'menu-system-dashboard');
 
--- 删除工单管理和配置管理菜单及其权限（如果存在）
+-- 删除发布工单菜单及其权限（如果存在，因为暂时不添加）
+DELETE FROM menu_permissions WHERE menu_id = 'menu-create-ticket';
+DELETE FROM menus WHERE id = 'menu-create-ticket';
+
+-- 删除全部工单、我的工单和工单配置菜单及其权限（已合并为工单列表）
+DELETE FROM menu_permissions WHERE menu_id IN ('menu-all-tickets', 'menu-my-tickets', 'menu-approval-config');
+DELETE FROM menus WHERE id IN ('menu-all-tickets', 'menu-my-tickets', 'menu-approval-config');
+
+-- 删除配置管理菜单及其权限（如果存在）
 DELETE FROM menu_permissions WHERE menu_id IN (
-    'menu-workorder', 'menu-daily-workorder', 'menu-form-templates', 'menu-category-management',
-    'menu-create-ticket', 'menu-all-tickets', 'menu-my-tickets', 'menu-draft-box', 'menu-approval-config',
     'menu-config', 'menu-config-deploy-tools', 'menu-config-app-deploy', 'menu-config-jenkins', 'menu-config-argocd'
 );
 DELETE FROM menus WHERE id IN (
-    'menu-workorder', 'menu-daily-workorder', 'menu-form-templates', 'menu-category-management',
-    'menu-create-ticket', 'menu-all-tickets', 'menu-my-tickets', 'menu-draft-box', 'menu-approval-config',
     'menu-config', 'menu-config-deploy-tools', 'menu-config-app-deploy', 'menu-config-jenkins', 'menu-config-argocd'
 );
 
@@ -1446,10 +1479,6 @@ DELETE FROM menus WHERE id IN (
     'menu-bill-vm', 'menu-bill-price', 'menu-bill-resource'
 );
 
--- 删除旧的 menu-tickets 菜单（如果存在）
-DELETE FROM menu_permissions WHERE menu_id = 'menu-tickets';
-DELETE FROM menus WHERE id = 'menu-tickets';
-
 -- 删除已移除的 menu-monitor-record-rule 菜单及其权限（如果存在）
 DELETE FROM menu_permissions WHERE menu_id = 'menu-monitor-record-rule';
 DELETE FROM menus WHERE id = 'menu-monitor-record-rule';
@@ -1463,6 +1492,8 @@ UPDATE menus SET parent_id = '' WHERE id IN (
     'menu-assets',
     'menu-bastion',
     'menu-k8s',
+    'menu-workorder',
+    'menu-dms',
     'menu-deployment',
     'menu-monitor',
     'menu-personal',
@@ -1961,6 +1992,74 @@ CREATE TABLE IF NOT EXISTS alert_aggregations (
 )
 ;
 
+-- ============================================================================
+-- 证书管理表
+-- ============================================================================
+
+-- 域名证书表（监控域名的SSL证书过期情况）
+CREATE TABLE IF NOT EXISTS domain_certificates (
+    id SERIAL PRIMARY KEY ,
+    domain VARCHAR(255) NOT NULL ,
+    port INTEGER DEFAULT 443 ,
+    ssl_certificate TEXT ,
+    ssl_certificate_key TEXT ,
+    start_time TIMESTAMP ,
+    expire_time TIMESTAMP ,
+    expire_days INTEGER DEFAULT 0 ,
+    is_monitor BOOLEAN DEFAULT TRUE ,
+    auto_update BOOLEAN DEFAULT TRUE ,
+    connect_status BOOLEAN ,
+    alert_days INTEGER DEFAULT 30 ,
+    alert_template_id INTEGER ,
+    alert_channel_ids TEXT ,
+    last_alert_time TIMESTAMP ,
+    comment TEXT ,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ,
+    UNIQUE (domain, port)
+)
+;
+
+CREATE INDEX IF NOT EXISTS idx_domain_certificates_domain ON domain_certificates(domain);
+CREATE INDEX IF NOT EXISTS idx_domain_certificates_expire_time ON domain_certificates(expire_time);
+CREATE INDEX IF NOT EXISTS idx_domain_certificates_is_monitor ON domain_certificates(is_monitor);
+CREATE INDEX IF NOT EXISTS idx_domain_certificates_alert_template_id ON domain_certificates(alert_template_id);
+CREATE INDEX IF NOT EXISTS idx_domain_certificates_last_alert_time ON domain_certificates(last_alert_time);
+
+-- SSL证书表（手动管理的SSL证书文件）
+CREATE TABLE IF NOT EXISTS ssl_certificates (
+    id SERIAL PRIMARY KEY ,
+    domain VARCHAR(255) NOT NULL ,
+    ssl_certificate TEXT ,
+    ssl_certificate_key TEXT ,
+    start_time TIMESTAMP ,
+    expire_time TIMESTAMP ,
+    comment TEXT ,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+;
+
+CREATE INDEX IF NOT EXISTS idx_ssl_certificates_domain ON ssl_certificates(domain);
+CREATE INDEX IF NOT EXISTS idx_ssl_certificates_expire_time ON ssl_certificates(expire_time);
+
+-- 托管证书表（托管在系统中的证书文件）
+CREATE TABLE IF NOT EXISTS hosted_certificates (
+    id SERIAL PRIMARY KEY ,
+    domain VARCHAR(255) NOT NULL ,
+    ssl_certificate TEXT ,
+    ssl_certificate_key TEXT ,
+    start_time TIMESTAMP ,
+    expire_time TIMESTAMP ,
+    comment TEXT ,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)
+;
+
+CREATE INDEX IF NOT EXISTS idx_hosted_certificates_domain ON hosted_certificates(domain);
+CREATE INDEX IF NOT EXISTS idx_hosted_certificates_expire_time ON hosted_certificates(expire_time);
+
 -- 告警静默表
 CREATE TABLE IF NOT EXISTS alert_silences (
     id SERIAL PRIMARY KEY ,
@@ -2288,6 +2387,10 @@ CREATE TABLE IF NOT EXISTS organizations (
 )
 ;
 
+-- 添加users表的外键约束（需要在organizations表创建之后）
+ALTER TABLE users ADD CONSTRAINT fk_users_organization_id 
+    FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL;
+
 -- Insert organization test data
 -- BizGroup (顶级组织)
 INSERT INTO organizations (id, unit_code, unit_name, unit_type, unit_owner, is_active, parent_id, sort_order) VALUES
@@ -2451,6 +2554,12 @@ INSERT INTO organizations (id, unit_code, unit_name, unit_type, unit_owner, is_a
 SELECT gen_random_uuid(), 'pr-dept', '公关部门', 'Department', '马二三', TRUE,
     (SELECT id FROM organizations WHERE unit_code = 'marketing-brand' LIMIT 1), 2
 WHERE EXISTS (SELECT 1 FROM organizations WHERE unit_code = 'marketing-brand');
+
+-- 更新admin用户的部门关联（关联到backend-dept部门）
+UPDATE users 
+SET organization_id = (SELECT id FROM organizations WHERE unit_code = 'backend-dept' LIMIT 1)
+WHERE username = 'admin' 
+  AND EXISTS (SELECT 1 FROM organizations WHERE unit_code = 'backend-dept');
 
 -- ============================================================================
 -- Application Management Tables (服务管理)

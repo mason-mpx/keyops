@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/fisker/zjump-backend/internal/model"
@@ -160,23 +161,76 @@ func (p *DingTalkProvider) createApprovalInstanceWithCode(ctx context.Context, t
 	}
 	url := fmt.Sprintf("%s%s?access_token=%s", p.baseURL, apiPath, token)
 
-	// 直接使用当前登录用户的用户名作为userID
-	userID := approval.ApplicantID
+	// 钉钉API需要的是用户名（userid），而不是系统内部的UUID
+	// ApplicantName 应该已经是用户名了（在创建审批记录时已设置）
+	userID := approval.ApplicantName
 	if userID == "" {
-		userID = approval.ApplicantName // 如果ApplicantID为空，使用ApplicantName
+		userID = approval.ApplicantID // 如果ApplicantName为空，fallback到ApplicantID
 	}
+	
+	// 如果userID看起来像UUID（36个字符且包含连字符），尝试查询用户名
+	if len(userID) == 36 && strings.Contains(userID, "-") {
+		var user model.User
+		if err := p.db.Where("id = ?", userID).First(&user).Error; err == nil {
+			userID = user.Username
+		}
+	}
+	
 	deptID := "1" // 钉钉默认部门ID，可以根据需要调整
 
-	// 从配置中读取审批人列表
+	// 从配置中读取审批人列表，并转换为用户名
 	var approverIDs []string
 	if p.config.ApproverUserIDs != "" {
-		json.Unmarshal([]byte(p.config.ApproverUserIDs), &approverIDs)
+		var approverUserIDs []string
+		if err := json.Unmarshal([]byte(p.config.ApproverUserIDs), &approverUserIDs); err == nil {
+			// 将审批人ID转换为用户名
+			for _, approverID := range approverUserIDs {
+				// 如果是UUID格式，查询用户名
+				if len(approverID) == 36 && strings.Contains(approverID, "-") {
+					var user model.User
+					if err := p.db.Where("id = ?", approverID).First(&user).Error; err == nil {
+						approverIDs = append(approverIDs, user.Username)
+					} else {
+						// 如果查询失败，使用原ID（可能是用户名）
+						approverIDs = append(approverIDs, approverID)
+					}
+				} else {
+					// 不是UUID，直接使用（可能是用户名）
+					approverIDs = append(approverIDs, approverID)
+				}
+			}
+		}
+	}
+
+	// 解析表单数据（formContent 是 JSON 字符串，需要解析为数组）
+	// 飞书格式: [{"id": "widgetId", "type": "input", "value": "xxx"}]
+	// 钉钉格式: [{"name": "fieldName", "value": "xxx"}]
+	var formComponentValues []map[string]interface{}
+	if formContent != "" {
+		var feishuFormData []map[string]interface{}
+		if err := json.Unmarshal([]byte(formContent), &feishuFormData); err != nil {
+			return "", fmt.Errorf("解析表单数据失败: %v", err)
+		}
+		// 转换为钉钉格式：使用 id 作为 name（如果字段映射中有 fieldName，优先使用 fieldName）
+		for _, item := range feishuFormData {
+			dingtalkItem := map[string]interface{}{
+				"value": item["value"],
+			}
+			// 优先使用 id 作为 name（钉钉的字段名称）
+			if id, ok := item["id"].(string); ok && id != "" {
+				dingtalkItem["name"] = id
+			} else {
+				// 如果没有 id，尝试使用其他字段
+				dingtalkItem["name"] = ""
+			}
+			formComponentValues = append(formComponentValues, dingtalkItem)
+		}
 	}
 
 	reqBody := map[string]interface{}{
 		"process_code":          processCode,
 		"originator_user_id":    userID,
-		"form_component_values": json.RawMessage(formContent),
+		"form_component_values": formComponentValues,
 		"dept_id":               deptID,
 	}
 

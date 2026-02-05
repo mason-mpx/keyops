@@ -53,6 +53,10 @@ type Handlers struct {
 	Audit                *handler.AuditHandler
 	Alert            *handler.AlertHandler
 	OnCall           *handler.OnCallHandler
+	DMSInstance      *handler.DMSInstanceHandler
+	DMSQuery         *handler.DMSQueryHandler
+	DMSQueryLog      *handler.DMSQueryLogHandler
+	DMSPermission    *handler.DMSPermissionHandler
 }
 
 // InitializeHandlers 初始化所有 Handler
@@ -126,7 +130,15 @@ func InitializeHandlers(
 	jenkinsHandler := handler.NewJenkinsHandler(services.Jenkins)
 	auditHandler := handler.NewAuditHandler()
 	alertHandler := handler.NewAlertHandler(services.Alert, notificationMgr)
+	alertHandler.SetCertificateRepositories(repos.DomainCertificate, repos.SSLCertificate, repos.HostedCertificate)
+	alertHandler.SetCertificateAlertService(backgroundServices.CertificateAlert)
 	onCallHandler := handler.NewOnCallHandler(services.OnCall)
+
+	// DMS handlers
+	dmsInstanceHandler := handler.NewDMSInstanceHandler(services.DMSInstance)
+	dmsQueryHandler := handler.NewDMSQueryHandler(services.DMSQuery)
+	dmsQueryLogHandler := handler.NewDMSQueryLogHandler(repos.QueryLog)
+	dmsPermissionHandler := handler.NewDMSPermissionHandler(services.DMSPermission)
 
 	// Set cross-references
 	settingHandler.SetHostMonitor(backgroundServices.HostMonitor)
@@ -172,6 +184,10 @@ func InitializeHandlers(
 		Audit:                auditHandler,
 		Alert:            alertHandler,
 		OnCall:           onCallHandler,
+		DMSInstance:      dmsInstanceHandler,
+		DMSQuery:         dmsQueryHandler,
+		DMSQueryLog:      dmsQueryLogHandler,
+		DMSPermission:    dmsPermissionHandler,
 	}
 }
 

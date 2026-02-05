@@ -667,7 +667,7 @@ func (s *AuthService) GetUsersWithPagination(page, pageSize int, keyword string)
 }
 
 // CreateUser 创建新用户（管理员功能）
-func (s *AuthService) CreateUser(req *model.RegisterRequest, role string, authMethod string) (*model.User, error) {
+func (s *AuthService) CreateUser(req *model.RegisterRequest, role string, authMethod string, organizationID *string) (*model.User, error) {
 	// 检查用户名是否已存在
 	if _, err := s.repo.FindUserByUsername(req.Username); err != nil {
 		// 如果是记录不存在错误，说明用户名可用，继续
@@ -692,6 +692,12 @@ func (s *AuthService) CreateUser(req *model.RegisterRequest, role string, authMe
 		}
 	}
 
+	// 验证部门ID是否存在（如果提供了）
+	if organizationID != nil && *organizationID != "" {
+		// 这里可以添加验证部门是否存在的逻辑
+		// 暂时先不验证，允许后续通过外键约束来保证数据完整性
+	}
+
 	// 加密密码
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -710,14 +716,15 @@ func (s *AuthService) CreateUser(req *model.RegisterRequest, role string, authMe
 
 	// 创建用户
 	user := &model.User{
-		ID:         uuid.New().String(),
-		Username:   req.Username,
-		Password:   string(hashedPassword),
-		Email:      req.Email,
-		FullName:   req.FullName,
-		Role:       role,
-		Status:     "active",
-		AuthMethod: authMethod,
+		ID:             uuid.New().String(),
+		Username:       req.Username,
+		Password:       string(hashedPassword),
+		Email:          req.Email,
+		FullName:       req.FullName,
+		Role:           role,
+		Status:         "active",
+		AuthMethod:     authMethod,
+		OrganizationID: organizationID,
 	}
 
 	if err := s.repo.CreateUser(user); err != nil {
@@ -728,7 +735,7 @@ func (s *AuthService) CreateUser(req *model.RegisterRequest, role string, authMe
 }
 
 // UpdateUserInfo 更新用户信息（管理员功能）
-func (s *AuthService) UpdateUserInfo(userID string, fullName, email string) error {
+func (s *AuthService) UpdateUserInfo(userID string, fullName, email string, organizationID *string) error {
 	user, err := s.repo.FindUserByID(userID)
 	if err != nil {
 		return errors.New("用户不存在")
@@ -743,6 +750,8 @@ func (s *AuthService) UpdateUserInfo(userID string, fullName, email string) erro
 
 	user.FullName = fullName
 	user.Email = email
+	// 允许清空部门（organizationID为nil时设置为nil）
+	user.OrganizationID = organizationID
 
 	return s.repo.UpdateUser(user)
 }
