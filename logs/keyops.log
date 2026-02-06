@@ -1,0 +1,91 @@
+{"level":"INFO","time":"2026-02-06T10:16:03.659+0800","caller":"app/bootstrap.go:35","msg":"✅ Logger initialized: output=both, level=info"}
+{"level":"INFO","time":"2026-02-06T10:16:03.720+0800","caller":"database/init.go:143","msg":"Database 'keyops' created or already exists"}
+{"level":"INFO","time":"2026-02-06T10:16:03.721+0800","caller":"database/init.go:50","msg":"Connecting to mysql database..."}
+{"level":"INFO","time":"2026-02-06T10:16:03.739+0800","caller":"database/init.go:94","msg":"Database connection pool configured: MaxOpenConns=100, MaxIdleConns=10, ConnMaxLifetime=3600s"}
+{"level":"INFO","time":"2026-02-06T10:16:03.739+0800","caller":"database/init.go:102","msg":"Database connection verified successfully"}
+{"level":"INFO","time":"2026-02-06T10:16:03.739+0800","caller":"database/init.go:109","msg":"Database connection double-checked successfully"}
+{"level":"INFO","time":"2026-02-06T10:16:03.739+0800","caller":"database/init.go:228","msg":"Checking database tables..."}
+{"level":"INFO","time":"2026-02-06T10:16:03.822+0800","caller":"database/init.go:337","msg":"All database tables already exist, no migration needed"}
+{"level":"INFO","time":"2026-02-06T10:16:03.822+0800","caller":"database/database.go:44","msg":"Database initialized successfully"}
+{"level":"INFO","time":"2026-02-06T10:16:03.823+0800","caller":"app/bootstrap.go:43","msg":"Database initialized successfully"}
+{"level":"INFO","time":"2026-02-06T10:16:03.831+0800","caller":"app/bootstrap.go:51","msg":"✅ Redis initialized successfully - distributed features enabled"}
+{"level":"INFO","time":"2026-02-06T10:16:03.861+0800","caller":"casbin/casbin.go:269","msg":"从数据库加载Casbin模型配置，共 5 条记录"}
+{"level":"INFO","time":"2026-02-06T10:16:03.876+0800","caller":"casbin/casbin.go:108","msg":"✅ Redis Watcher已配置（地址: redis:6379），支持多机器权限同步"}
+{"level":"INFO","time":"2026-02-06T10:16:03.876+0800","caller":"casbin/casbin.go:122","msg":"Casbin权限管理器初始化成功"}
+{"level":"INFO","time":"2026-02-06T10:16:03.876+0800","caller":"app/bootstrap.go:60","msg":"Casbin permission manager initialized successfully"}
+{"level":"INFO","time":"2026-02-06T10:16:03.876+0800","caller":"app/app.go:39","msg":"Repositories initialized"}
+{"level":"INFO","time":"2026-02-06T10:16:03.883+0800","caller":"app/services.go:85","msg":"Datasource sync scheduler started"}
+{"level":"INFO","time":"2026-02-06T10:16:03.883+0800","caller":"app/app.go:43","msg":"Services initialized"}
+{"level":"INFO","time":"2026-02-06T10:16:03.883+0800","caller":"app/app.go:47","msg":"Unified Audit Service initialized"}
+{"level":"INFO","time":"2026-02-06T10:16:03.883+0800","caller":"app/app.go:48","msg":"   Supports: SSH Gateway + WebShell"}
+{"level":"INFO","time":"2026-02-06T10:16:03.885+0800","caller":"app/app.go:52","msg":"Notification Manager initialized"}
+{"level":"INFO","time":"2026-02-06T10:16:03.888+0800","caller":"app/services.go:197","msg":"Certificate alert service started, will check daily at 2:00 AM"}
+{"level":"INFO","time":"2026-02-06T10:16:03.888+0800","caller":"app/services.go:207","msg":"Recording converter service started, scanning: /replay, interval: 5 minutes"}
+{"level":"INFO","time":"2026-02-06T10:16:03.888+0800","caller":"app/app.go:56","msg":"Background services initialized"}
+{"level":"INFO","time":"2026-02-06T10:16:03.888+0800","caller":"app/app.go:57","msg":"   Asset sync scheduler started"}
+{"level":"INFO","time":"2026-02-06T10:16:03.888+0800","caller":"app/app.go:58","msg":"   Host status monitor started (interval: 5 minutes)"}
+{"level":"INFO","time":"2026-02-06T10:16:03.888+0800","caller":"app/app.go:59","msg":"   Certificate alert service started (daily check)"}
+{"level":"INFO","time":"2026-02-06T10:16:03.888+0800","caller":"app/handlers.go:72","msg":"WebShell Storage Adapter created"}
+{"level":"INFO","time":"2026-02-06T10:16:03.891+0800","caller":"bastion/recording_converter.go:284","msg":"[RecordingConverter] Background converter started, scanning: /replay, interval: 5m0s"}
+{"level":"INFO","time":"2026-02-06T10:16:03.892+0800","caller":"app/handlers.go:202","msg":"Found 0 enabled approval configurations"}
+{"level":"INFO","time":"2026-02-06T10:16:03.904+0800","caller":"app/app.go:63","msg":"Handlers initialized"}
+{"level":"INFO","time":"2026-02-06T10:16:03.904+0800","caller":"app/ssh_server.go:35","msg":""}
+{"level":"INFO","time":"2026-02-06T10:16:03.905+0800","caller":"app/ssh_server.go:36","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"level":"INFO","time":"2026-02-06T10:16:03.905+0800","caller":"app/ssh_server.go:37","msg":"Initializing SSH Gateway Server..."}
+{"level":"INFO","time":"2026-02-06T10:16:03.905+0800","caller":"app/ssh_server.go:38","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"level":"INFO","time":"2026-02-06T10:16:03.908+0800","caller":"app/ssh_server.go:81","msg":"   Instance ID:    91d2cfd575bf"}
+{"level":"INFO","time":"2026-02-06T10:16:03.908+0800","caller":"app/ssh_server.go:82","msg":"   Host Key Mode:  Database Shared (multi-instance)"}
+{"level":"INFO","time":"2026-02-06T10:16:03.908+0800","caller":"app/ssh_server.go:83","msg":"   Storage:        ssh_host_keys table"}
+{"level":"INFO","time":"2026-02-06T10:16:03.908+0800","caller":"app/ssh_server.go:84","msg":"   Note: No local files will be generated"}
+{"level":"INFO","time":"2026-02-06T10:16:03.912+0800","caller":"app/ssh_server.go:114","msg":""}
+{"level":"INFO","time":"2026-02-06T10:16:03.912+0800","caller":"app/ssh_server.go:115","msg":"SSH Gateway Server initialized"}
+{"level":"INFO","time":"2026-02-06T10:16:03.912+0800","caller":"app/ssh_server.go:116","msg":"   Listen Address: :2222"}
+{"level":"INFO","time":"2026-02-06T10:16:03.912+0800","caller":"app/ssh_server.go:117","msg":"   Max Sessions:   100"}
+{"level":"INFO","time":"2026-02-06T10:16:03.912+0800","caller":"app/ssh_server.go:118","msg":"   Authentication: Password, PublicKey"}
+{"level":"INFO","time":"2026-02-06T10:16:03.913+0800","caller":"app/ssh_server.go:119","msg":""}
+{"level":"INFO","time":"2026-02-06T10:16:03.913+0800","caller":"app/ssh_server.go:120","msg":"Usage: ssh <username>@<server-ip> -p 2222"}
+{"level":"INFO","time":"2026-02-06T10:16:03.913+0800","caller":"app/ssh_server.go:121","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"level":"INFO","time":"2026-02-06T10:16:03.913+0800","caller":"app/ssh_server.go:122","msg":""}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:110","msg":""}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:208","msg":""}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:209","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:210","msg":"ZJump Unified Server v2.0 - Intelligent Routing Architecture"}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:211","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:212","msg":""}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:213","msg":"Features:"}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:214","msg":"   • Authentication & Authorization"}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:215","msg":"   • Intelligent Routing - Auto path selection"}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:216","msg":"   • Direct Connection - Default mode, low latency"}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:217","msg":"   • Proxy Forwarding - Use Proxy Agent in isolated networks"}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:218","msg":"   • Full Audit Trail - Complete operation logs"}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:220","msg":"   • SSH Gateway - CLI login with full audit"}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:222","msg":""}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:223","msg":"🔀 Connection Modes:"}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:224","msg":"   • Web Mode   - Browser access (:8080)"}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:226","msg":"   • SSH Mode   - SSH client (:2222)"}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:228","msg":"   • Direct     - API Server connects to target directly"}
+{"level":"INFO","time":"2026-02-06T10:16:03.914+0800","caller":"app/server.go:229","msg":"   • Proxy      - Via Proxy Agent (8022) for isolated networks"}
+{"level":"INFO","time":"2026-02-06T10:16:03.915+0800","caller":"app/server.go:230","msg":""}
+{"level":"INFO","time":"2026-02-06T10:16:03.915+0800","caller":"app/server.go:231","msg":"Tips:"}
+{"level":"INFO","time":"2026-02-06T10:16:03.915+0800","caller":"app/server.go:232","msg":"   Start only this service for both Web and SSH access"}
+{"level":"INFO","time":"2026-02-06T10:16:03.915+0800","caller":"app/server.go:233","msg":"   Proxy Agent is optional, needed only for isolated networks"}
+{"level":"INFO","time":"2026-02-06T10:16:03.915+0800","caller":"app/server.go:234","msg":""}
+{"level":"INFO","time":"2026-02-06T10:16:03.915+0800","caller":"app/server.go:235","msg":"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"}
+{"level":"INFO","time":"2026-02-06T10:16:03.915+0800","caller":"app/server.go:236","msg":""}
+{"level":"INFO","time":"2026-02-06T10:16:06.917+0800","caller":"system/expiration_service.go:60","msg":"Expiration service started, check interval: 1h0m0s"}
+{"level":"INFO","time":"2026-02-06T10:16:06.917+0800","caller":"app/server.go:90","msg":"Expiration Service started"}
+{"level":"INFO","time":"2026-02-06T10:16:06.918+0800","caller":"app/server.go:91","msg":"   Checking for expired users and permissions"}
+{"level":"INFO","time":"2026-02-06T10:16:07.915+0800","caller":"oncall/notification_service.go:51","msg":"On-call notification service started, check interval: 1m0s"}
+{"level":"INFO","time":"2026-02-06T10:16:07.915+0800","caller":"app/server.go:105","msg":"On-Call Notification Service started"}
+{"level":"INFO","time":"2026-02-06T10:16:07.915+0800","caller":"app/server.go:106","msg":"   Checking for upcoming shifts (interval: 1 minute)"}
+{"level":"ERROR","time":"2026-02-06T10:16:08.891+0800","caller":"app/services.go:183","msg":"Failed to check certificate alerts: failed to fetch certificates: Error 1146 (42S02): Table 'keyops.domain_certificates' doesn't exist"}
+{"level":"INFO","time":"2026-02-06T10:16:08.917+0800","caller":"system/expiration_service.go:145","msg":"Starting expiration check..."}
+{"level":"INFO","time":"2026-02-06T10:16:08.927+0800","caller":"system/expiration_service.go:191","msg":"Found 0 users to warn about expiration"}
+{"level":"INFO","time":"2026-02-06T10:16:08.927+0800","caller":"system/expiration_service.go:225","msg":"Found 0 expired users"}
+{"level":"INFO","time":"2026-02-06T10:16:08.930+0800","caller":"system/expiration_service.go:310","msg":"Found 0 permission rules to warn about expiration"}
+{"level":"INFO","time":"2026-02-06T10:16:08.930+0800","caller":"system/expiration_service.go:345","msg":"Found 0 expired permission rules"}
+{"level":"INFO","time":"2026-02-06T10:16:08.931+0800","caller":"system/expiration_service.go:157","msg":"Expiration check completed"}
+{"level":"INFO","time":"2026-02-06T10:21:03.901+0800","caller":"bastion/recording_converter.go:321","msg":"[RecordingConverter] Acquired distributed scan lock, starting scan..."}
+{"level":"INFO","time":"2026-02-06T10:26:03.889+0800","caller":"bastion/recording_converter.go:321","msg":"[RecordingConverter] Acquired distributed scan lock, starting scan..."}
+{"level":"INFO","time":"2026-02-06T10:31:03.890+0800","caller":"bastion/recording_converter.go:321","msg":"[RecordingConverter] Acquired distributed scan lock, starting scan..."}
+{"level":"INFO","time":"2026-02-06T10:36:03.898+0800","caller":"bastion/recording_converter.go:321","msg":"[RecordingConverter] Acquired distributed scan lock, starting scan..."}
