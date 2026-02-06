@@ -2,12 +2,16 @@ package dms
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/fisker/zjump-backend/internal/model"
 	"github.com/fisker/zjump-backend/internal/repository"
 	"github.com/fisker/zjump-backend/pkg/crypto"
 )
+
+// ErrInstanceNameExists 实例名称已存在（用于返回 400）
+var ErrInstanceNameExists = errors.New("实例名称已存在")
 
 type InstanceService struct {
 	instanceRepo *repository.DBInstanceRepository
@@ -26,6 +30,15 @@ func NewInstanceService(
 
 // CreateInstance 创建数据库实例
 func (s *InstanceService) CreateInstance(req *CreateInstanceRequest, createdBy string) (*model.DBInstance, error) {
+	// 名称不能重复
+	exists, err := s.instanceRepo.ExistsByName(req.Name, nil)
+	if err != nil {
+		return nil, fmt.Errorf("检查实例名称失败: %w", err)
+	}
+	if exists {
+		return nil, fmt.Errorf("%w: %s", ErrInstanceNameExists, req.Name)
+	}
+
 	// 加密密码
 	encryptedPassword, err := s.crypto.Encrypt(req.Password)
 	if err != nil {
@@ -64,6 +77,17 @@ func (s *InstanceService) UpdateInstance(id uint, req *UpdateInstanceRequest, up
 	instance, err := s.instanceRepo.GetByID(id)
 	if err != nil {
 		return nil, fmt.Errorf("实例不存在: %w", err)
+	}
+
+	// 若修改了名称，检查新名称是否与其他实例重复
+	if req.Name != "" && req.Name != instance.Name {
+		exists, err := s.instanceRepo.ExistsByName(req.Name, &id)
+		if err != nil {
+			return nil, fmt.Errorf("检查实例名称失败: %w", err)
+		}
+		if exists {
+			return nil, fmt.Errorf("%w: %s", ErrInstanceNameExists, req.Name)
+		}
 	}
 
 	// 更新字段
@@ -129,7 +153,7 @@ func (s *InstanceService) ListInstances(offset, limit int, filters map[string]in
 	return instances, total, nil
 }
 
-// TestConnection 测试连接（使用 Executor）
+// TestConnection 测试连接（使用 Executor，要求实例已存在）
 func (s *InstanceService) TestConnection(id uint) error {
 	instance, err := s.instanceRepo.GetByID(id)
 	if err != nil {
@@ -142,6 +166,35 @@ func (s *InstanceService) TestConnection(id uint) error {
 	}
 	defer executor.Close()
 
+	ctx := context.Background()
+	return executor.TestConnection(ctx)
+}
+
+// TestConnectionWithRequest 仅测试连接，不落库（用于新增前“测试连接”）
+func (s *InstanceService) TestConnectionWithRequest(req *CreateInstanceRequest) error {
+	encryptedPassword, err := s.crypto.Encrypt(req.Password)
+	if err != nil {
+		return fmt.Errorf("加密密码失败: %w", err)
+	}
+	instance := &model.DBInstance{
+		Name:             req.Name,
+		DBType:           req.DBType,
+		Host:             req.Host,
+		Port:             req.Port,
+		Username:         req.Username,
+		Password:         encryptedPassword,
+		DatabaseName:     req.DatabaseName,
+		AuthDatabase:     req.AuthDatabase,
+		Charset:          req.Charset,
+		ConnectionString: req.ConnectionString,
+		SSLEnabled:       req.SSLEnabled,
+		SSLCert:          req.SSLCert,
+	}
+	executor, err := NewExecutor(instance, s.crypto)
+	if err != nil {
+		return err
+	}
+	defer executor.Close()
 	ctx := context.Background()
 	return executor.TestConnection(ctx)
 }

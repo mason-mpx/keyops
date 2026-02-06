@@ -1,11 +1,13 @@
 package dms
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/fisker/zjump-backend/internal/model"
 	"github.com/fisker/zjump-backend/internal/service/dms"
+	"github.com/fisker/zjump-backend/pkg/logger"
 	"github.com/gin-gonic/gin"
 )
 
@@ -92,11 +94,36 @@ func (h *InstanceHandler) CreateInstance(c *gin.Context) {
 
 	instance, err := h.instanceService.CreateInstance(&req, userIDStr)
 	if err != nil {
+		if errors.Is(err, dms.ErrInstanceNameExists) {
+			c.JSON(http.StatusBadRequest, model.Error(400, err.Error()))
+			return
+		}
 		c.JSON(http.StatusInternalServerError, model.Error(500, "创建实例失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, model.Success(instance))
+	// 显式返回带 id 的 data，避免前端解析不到 id（如网关/代理或前端 request 解包导致）
+	logger.Infof("DMS CreateInstance success, id=%d, name=%s", instance.ID, instance.Name)
+	data := gin.H{
+		"id":              instance.ID,
+		"name":            instance.Name,
+		"dbType":          instance.DBType,
+		"host":            instance.Host,
+		"port":            instance.Port,
+		"username":        instance.Username,
+		"databaseName":    instance.DatabaseName,
+		"authDatabase":    instance.AuthDatabase,
+		"charset":         instance.Charset,
+		"connectionString": instance.ConnectionString,
+		"sslEnabled":      instance.SSLEnabled,
+		"sslCert":         instance.SSLCert,
+		"description":     instance.Description,
+		"isEnabled":       instance.IsEnabled,
+		"createdBy":       instance.CreatedBy,
+		"createdAt":       instance.CreatedAt,
+		"updatedAt":       instance.UpdatedAt,
+	}
+	c.JSON(http.StatusOK, model.Success(data))
 }
 
 // GetInstance 获取实例详情
@@ -154,6 +181,10 @@ func (h *InstanceHandler) UpdateInstance(c *gin.Context) {
 
 	instance, err := h.instanceService.UpdateInstance(uriParams.ID, &req, userIDStr)
 	if err != nil {
+		if errors.Is(err, dms.ErrInstanceNameExists) {
+			c.JSON(http.StatusBadRequest, model.Error(400, err.Error()))
+			return
+		}
 		c.JSON(http.StatusInternalServerError, model.Error(500, "更新实例失败: "+err.Error()))
 		return
 	}
@@ -186,7 +217,7 @@ func (h *InstanceHandler) DeleteInstance(c *gin.Context) {
 	c.JSON(http.StatusOK, model.Success(nil))
 }
 
-// TestConnection 测试连接
+// TestConnection 测试连接（已存在的实例）
 // @Summary 测试数据库连接
 // @Tags DMS
 // @Accept json
@@ -208,5 +239,34 @@ func (h *InstanceHandler) TestConnection(c *gin.Context) {
 		return
 	}
 
+	c.JSON(http.StatusOK, model.Success(gin.H{"message": "连接成功"}))
+}
+
+// TestConnectionWithBody 仅测试连接（不创建实例，用于新增前测试）
+// @Summary 测试连接（请求体，不落库）
+// @Tags DMS
+// @Accept json
+// @Produce json
+// @Param request body dms.CreateInstanceRequest true "连接参数"
+// @Success 200 {object} model.Response
+// @Router /api/dms/instances/test-connection [post]
+func (h *InstanceHandler) TestConnectionWithBody(c *gin.Context) {
+	var req dms.CreateInstanceRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, model.Error(400, "参数错误: "+err.Error()))
+		return
+	}
+	// 便于排查：Docker 前端经 Nginx 代理 vs 直连 8080 时请求是否一致
+	logger.Infof("DMS TestConnectionWithBody received: dbType=%s host=%s port=%d client=%s",
+		req.DBType, req.Host, req.Port, c.ClientIP())
+	if req.DBType != "redis" && req.DBType != "mongodb" && req.Password == "" {
+		c.JSON(http.StatusBadRequest, model.Error(400, "密码是必填项（Redis 和 MongoDB 类型除外）"))
+		return
+	}
+	if err := h.instanceService.TestConnectionWithRequest(&req); err != nil {
+		logger.Infof("DMS TestConnectionWithBody failed: host=%s port=%d err=%v", req.Host, req.Port, err)
+		c.JSON(http.StatusBadRequest, model.Error(400, "连接测试失败: "+err.Error()))
+		return
+	}
 	c.JSON(http.StatusOK, model.Success(gin.H{"message": "连接成功"}))
 }

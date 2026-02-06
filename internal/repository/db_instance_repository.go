@@ -38,6 +38,19 @@ func (r *DBInstanceRepository) GetByID(id uint) (*model.DBInstance, error) {
 	return &instance, nil
 }
 
+// ExistsByName 检查名称是否已存在。excludeID 不为 nil 时排除该 ID（用于更新时允许原名）
+func (r *DBInstanceRepository) ExistsByName(name string, excludeID *uint) (bool, error) {
+	var count int64
+	query := r.db.Model(&model.DBInstance{}).Where("name = ?", name)
+	if excludeID != nil {
+		query = query.Where("id != ?", *excludeID)
+	}
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 // List 获取实例列表
 func (r *DBInstanceRepository) List(offset, limit int, filters map[string]interface{}) ([]model.DBInstance, int64, error) {
 	var instances []model.DBInstance

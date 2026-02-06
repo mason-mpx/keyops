@@ -869,12 +869,13 @@ func Setup(
 		dms := authenticated.Group("/dms")
 		{
 			// 实例管理
-			dms.GET("/instances", dmsInstanceHandler.ListInstances)            // 获取实例列表
-			dms.POST("/instances", dmsInstanceHandler.CreateInstance)          // 创建实例
-			dms.GET("/instances/:id", dmsInstanceHandler.GetInstance)          // 获取实例详情
-			dms.PUT("/instances/:id", dmsInstanceHandler.UpdateInstance)       // 更新实例
-			dms.DELETE("/instances/:id", dmsInstanceHandler.DeleteInstance)    // 删除实例
-			dms.POST("/instances/:id/test", dmsInstanceHandler.TestConnection) // 测试连接
+			dms.GET("/instances", dmsInstanceHandler.ListInstances)                   // 获取实例列表
+			dms.POST("/instances", dmsInstanceHandler.CreateInstance)                 // 创建实例
+			dms.POST("/instances/test-connection", dmsInstanceHandler.TestConnectionWithBody) // 仅测试连接（不落库）
+			dms.GET("/instances/:id", dmsInstanceHandler.GetInstance)                 // 获取实例详情
+			dms.PUT("/instances/:id", dmsInstanceHandler.UpdateInstance)             // 更新实例
+			dms.DELETE("/instances/:id", dmsInstanceHandler.DeleteInstance)           // 删除实例
+			dms.POST("/instances/:id/test", dmsInstanceHandler.TestConnection)        // 测试连接（已存在实例）
 
 			// 查询执行
 			dms.POST("/query/execute", dmsQueryHandler.ExecuteQuery)  // 执行查询

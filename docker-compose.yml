@@ -54,7 +54,7 @@ services:
 
   # Guacamole daemon (guacd) - 用于 RDP 录制
   guacd:
-    image: guacamole/guacd:1.6.0
+    image: guacamole/guacd:latest
     container_name: keyops-guacd
     restart: unless-stopped
     # 平台配置：自动适配 ARM64 (Apple Silicon) 和 AMD64
