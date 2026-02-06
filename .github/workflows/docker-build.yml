@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.nju.edu.cn
+  REGISTRY: ghcr.io
   # 使用 repository（owner/repo）作为镜像名前缀
   IMAGE_NAME_PREFIX: ${{ github.repository }}
 
