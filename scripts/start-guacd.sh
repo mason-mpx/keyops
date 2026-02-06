@@ -22,7 +22,7 @@ if docker ps -a | grep -q guacd; then
 fi
 
 # 启动 guacd
-# 注意：使用 1.5.5 版本（稳定），避免 1.6.0 的协议兼容性问题
+# 使用 1.6.0 版本
 # 明确指定平台为 linux/amd64，避免在 ARM64 系统上的平台警告
 echo "Starting guacd container..."
 
@@ -40,7 +40,7 @@ docker run -d \
   -p 4822:4822 \
   -v "$RECORDING_DIR:/replay" \
   --restart unless-stopped \
-  guacamole/guacd:1.5.5
+  guacamole/guacd:1.6.0
 
 # 等待启动
 echo "Waiting for guacd to start..."

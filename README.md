@@ -63,6 +63,8 @@
 | | 📝 查询日志 | 完整的查询审计日志，记录用户、时间、IP | ✅ |
 | | 🔐 细粒度权限 | 基于 Casbin 的权限控制（实例→数据库→表→权限类型） | ✅ |
 | **🔧 基础设施** | 🌐 高可用 | 支持多实例部署，Redis 分布式锁，配置同步 | ✅ |
+| | 📊 资产同步 | Prometheus 资产自动同步，主机信息自动更新 | ✅ |
+| | 🔍 主机监控 | 主机在线状态实时监控，健康检查 | ✅ |
 
 ## 快速部署
 
@@ -134,6 +136,10 @@ REDIS_PASSWORD=
 
 # KeyOps - Infrastructure Management Platform
 
+**Screenshots**
+<img width="2924" height="1374" alt="image" src="https://github.com/user-attachments/assets/8a50b150-3c33-49df-b201-5c398a03f3ab" />
+<img width="2504" height="1582" alt="image" src="https://github.com/user-attachments/assets/c20edb04-d634-43a5-94f4-1a982c55e8e7" />
+
 **Enterprise-grade DevOps platform built with Go**
 
 ## Core Features
@@ -187,6 +193,8 @@ REDIS_PASSWORD=
 | | 📝 Query Logs | Complete query audit logs, records user, time, IP | ✅ |
 | | 🔐 Fine-grained Permissions | Casbin-based permission control (instance → database → table → permission type) | ✅ |
 | **🔧 Infrastructure** | 🌐 High Availability | Multi-instance deployment, Redis distributed locks, configuration synchronization | ✅ |
+| | 📊 Asset Synchronization | Automatic asset synchronization with Prometheus, automatic host information updates | ✅ |
+| | 🔍 Host Monitoring | Real-time host online status monitoring, health checks | ✅ |
 
 ## Quick Deployment
 

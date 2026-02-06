@@ -2,13 +2,13 @@ package router
 
 import (
 	"log"
+	"net/http"
 
 	_ "github.com/fisker/zjump-backend/docs" // swagger docs
 	"github.com/fisker/zjump-backend/internal/api/handler"
 	"github.com/fisker/zjump-backend/internal/api/middleware"
 	"github.com/fisker/zjump-backend/internal/repository"
 	"github.com/fisker/zjump-backend/internal/service"
-	"github.com/fisker/zjump-backend/pkg/static"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	swaggerFiles "github.com/swaggo/files"
@@ -196,7 +196,7 @@ func Setup(
 		{
 			files.GET("/list", fileHandler.ListFiles)             // 列出远程目录文件
 			files.POST("/upload", fileHandler.UploadFile)         // 上传文件到目标服务器
-			files.GET("/download", fileHandler.DownloadFile)       // 从目标服务器下载文件
+			files.GET("/download", fileHandler.DownloadFile)      // 从目标服务器下载文件
 			files.GET("/transfers", fileHandler.GetFileTransfers) // 获取文件传输记录
 		}
 
@@ -739,14 +739,14 @@ func Setup(
 
 			// 证书管理
 			// 域名证书
-			alerts.GET("/certificates/domains", alertHandler.GetDomainCertificates)          // 获取域名证书列表
-			alerts.POST("/certificates/domains", alertHandler.CreateDomainCertificate)       // 创建域名证书
+			alerts.GET("/certificates/domains", alertHandler.GetDomainCertificates)                // 获取域名证书列表
+			alerts.POST("/certificates/domains", alertHandler.CreateDomainCertificate)             // 创建域名证书
 			alerts.POST("/certificates/domains/check-alerts", alertHandler.CheckCertificateAlerts) // 手动触发证书告警检查
 			// 注意：带子路径的路由必须放在 /:id 之前，避免路由冲突
 			alerts.POST("/certificates/domains/:id/refresh", alertHandler.RefreshDomainCertificate) // 刷新域名证书信息（通过HTTPS连接获取）
-			alerts.GET("/certificates/domains/:id", alertHandler.GetDomainCertificate)       // 获取域名证书详情
-			alerts.PUT("/certificates/domains/:id", alertHandler.UpdateDomainCertificate)    // 更新域名证书
-			alerts.DELETE("/certificates/domains/:id", alertHandler.DeleteDomainCertificate) // 删除域名证书
+			alerts.GET("/certificates/domains/:id", alertHandler.GetDomainCertificate)              // 获取域名证书详情
+			alerts.PUT("/certificates/domains/:id", alertHandler.UpdateDomainCertificate)           // 更新域名证书
+			alerts.DELETE("/certificates/domains/:id", alertHandler.DeleteDomainCertificate)        // 删除域名证书
 
 			// SSL证书
 			alerts.GET("/certificates/ssl", alertHandler.GetSslCertificates)          // 获取SSL证书列表
@@ -869,30 +869,30 @@ func Setup(
 		dms := authenticated.Group("/dms")
 		{
 			// 实例管理
-			dms.GET("/instances", dmsInstanceHandler.ListInstances)                    // 获取实例列表
-			dms.POST("/instances", dmsInstanceHandler.CreateInstance)                // 创建实例
-			dms.GET("/instances/:id", dmsInstanceHandler.GetInstance)                // 获取实例详情
-			dms.PUT("/instances/:id", dmsInstanceHandler.UpdateInstance)             // 更新实例
-			dms.DELETE("/instances/:id", dmsInstanceHandler.DeleteInstance)          // 删除实例
-			dms.POST("/instances/:id/test", dmsInstanceHandler.TestConnection)       // 测试连接
+			dms.GET("/instances", dmsInstanceHandler.ListInstances)            // 获取实例列表
+			dms.POST("/instances", dmsInstanceHandler.CreateInstance)          // 创建实例
+			dms.GET("/instances/:id", dmsInstanceHandler.GetInstance)          // 获取实例详情
+			dms.PUT("/instances/:id", dmsInstanceHandler.UpdateInstance)       // 更新实例
+			dms.DELETE("/instances/:id", dmsInstanceHandler.DeleteInstance)    // 删除实例
+			dms.POST("/instances/:id/test", dmsInstanceHandler.TestConnection) // 测试连接
 
 			// 查询执行
-			dms.POST("/query/execute", dmsQueryHandler.ExecuteQuery)                 // 执行查询
-			dms.GET("/query/databases", dmsQueryHandler.GetDatabases)                // 获取数据库列表
-			dms.GET("/query/tables", dmsQueryHandler.GetTables)                      // 获取表列表
+			dms.POST("/query/execute", dmsQueryHandler.ExecuteQuery)  // 执行查询
+			dms.GET("/query/databases", dmsQueryHandler.GetDatabases) // 获取数据库列表
+			dms.GET("/query/tables", dmsQueryHandler.GetTables)       // 获取表列表
 
 			// 查询日志
-			dms.GET("/logs/queries", dmsQueryLogHandler.ListQueryLogs)                // 获取查询日志列表
-			dms.GET("/logs/queries/:id", dmsQueryLogHandler.GetQueryLog)              // 获取查询日志详情
+			dms.GET("/logs/queries", dmsQueryLogHandler.ListQueryLogs)   // 获取查询日志列表
+			dms.GET("/logs/queries/:id", dmsQueryLogHandler.GetQueryLog) // 获取查询日志详情
 
 			// 权限管理
-			dms.GET("/permissions", dmsPermissionHandler.GetUserPermissions)           // 获取用户权限列表
-			dms.GET("/permissions/my", dmsPermissionHandler.GetMyPermissions)         // 获取我的权限
-			dms.POST("/permissions", dmsPermissionHandler.GrantPermission)           // 分配权限
-			dms.POST("/permissions/batch", dmsPermissionHandler.BatchGrantPermissions) // 批量分配权限
-			dms.PUT("/permissions", dmsPermissionHandler.UpdatePermission)            // 更新权限（只更新元数据）
+			dms.GET("/permissions", dmsPermissionHandler.GetUserPermissions)                // 获取用户权限列表
+			dms.GET("/permissions/my", dmsPermissionHandler.GetMyPermissions)               // 获取我的权限
+			dms.POST("/permissions", dmsPermissionHandler.GrantPermission)                  // 分配权限
+			dms.POST("/permissions/batch", dmsPermissionHandler.BatchGrantPermissions)      // 批量分配权限
+			dms.PUT("/permissions", dmsPermissionHandler.UpdatePermission)                  // 更新权限（只更新元数据）
 			dms.PUT("/permissions/resource", dmsPermissionHandler.UpdatePermissionResource) // 更新权限资源路径
-			dms.DELETE("/permissions", dmsPermissionHandler.RevokePermission)        // 回收权限
+			dms.DELETE("/permissions", dmsPermissionHandler.RevokePermission)               // 回收权限
 		}
 	}
 	// authenticated路由组结束
@@ -921,9 +921,14 @@ func Setup(
 		r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	}
 
-	// 静态文件服务（前端）- 放在最后，作为fallback
-	// 支持 React Router：所有非API路径都返回 index.html
-	r.NoRoute(static.ServeStaticFiles())
+	// 静态文件由 Nginx 处理，后端不需要提供静态文件服务
+	r.NoRoute(func(c *gin.Context) {
+		c.Status(http.StatusNotFound)
+		c.JSON(http.StatusNotFound, gin.H{
+			"error":   "Not Found",
+			"message": "The requested resource was not found. In separated architecture, static files are served by Nginx.",
+		})
+	})
 
 	return r
 }
