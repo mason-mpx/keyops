@@ -261,6 +261,8 @@ REDIS_PASSWORD=
 ```
 
 ---
+## 联系作者
+<img width="752" height="760" alt="image" src="https://github.com/user-attachments/assets/0633a4f9-962e-4691-8b3d-1385b13b1ffd" />
 
 ## License
 
